@@ -1,8 +1,8 @@
 /**  
  * Copyright (C) 2016-2017 Salvatore Virga - salvo.virga@tum.de, Marco Esposito - marco.esposito@tum.de
- * Technische Universität München
+ * Technische UniversitÃ¤t MÃ¼nchen
  * Chair for Computer Aided Medical Procedures and Augmented Reality
- * Fakultät für Informatik / I16, Boltzmannstraße 3, 85748 Garching bei München, Germany
+ * FakultÃ¤t fÃ¼r Informatik / I16, BoltzmannstraÃŸe 3, 85748 Garching bei MÃ¼nchen, Germany
  * http://campar.in.tum.de
  * All rights reserved.
  * 
@@ -23,6 +23,18 @@
 
 package de.tum.in.camp.kuka.ros;
 
+import geometry_msgs.Point;
+import geometry_msgs.Pose;
+import geometry_msgs.PoseStamped;
+import geometry_msgs.Quaternion;
+import geometry_msgs.Vector3;
+
+import javax.vecmath.Matrix3d;
+import javax.vecmath.Matrix4d;
+import javax.vecmath.Quat4d;
+import javax.vecmath.Vector3d;
+
+import org.ros.internal.message.RawMessage;
 import org.ros.message.MessageListener;
 import org.ros.namespace.GraphName;
 import org.ros.node.AbstractNodeMain;
@@ -30,6 +42,10 @@ import org.ros.node.ConnectedNode;
 import org.ros.node.service.ServiceResponseBuilder;
 import org.ros.node.service.ServiceServer;
 import org.ros.node.topic.Subscriber;
+import org.ros.rosjava.tf.Transform;
+import org.ros.rosjava.tf.pubsub.TransformListener;
+
+import std_msgs.Header;
 
 import com.kuka.roboticsAPI.deviceModel.LBR;
 import com.kuka.roboticsAPI.geometricModel.ObjectFrame;
@@ -43,6 +59,8 @@ public class iiwaSubscriber extends AbstractNodeMain {
 
 	public enum CommandType {
 		CARTESIAN_POSE,
+		CARTESIAN_POSE_LIN,
+		CARTESIAN_VELOCITY,
 		JOINT_POSITION,
 		JOINT_POSITION_VELOCITY,
 		JOINT_VELOCITY
@@ -58,35 +76,43 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	@SuppressWarnings("unused")
 	private ServiceServer<iiwa_msgs.TimeToDestinationRequest, iiwa_msgs.TimeToDestinationResponse> timeToDestinationServer = null;
 	private ServiceResponseBuilder<iiwa_msgs.TimeToDestinationRequest, iiwa_msgs.TimeToDestinationResponse> timeToDestinationCallback = null;
-	
+
 	@SuppressWarnings("unused")
 	private ServiceServer<iiwa_msgs.SetPathParametersRequest, iiwa_msgs.SetPathParametersResponse> setPathParametersServer = null;
 	private ServiceResponseBuilder<iiwa_msgs.SetPathParametersRequest, iiwa_msgs.SetPathParametersResponse> setPathParametersCallback = null;
+	
+	@SuppressWarnings("unused")
+	private ServiceServer<iiwa_msgs.SetPathParametersLinRequest, iiwa_msgs.SetPathParametersLinResponse> setPathParametersLinServer = null;
+	private ServiceResponseBuilder<iiwa_msgs.SetPathParametersLinRequest, iiwa_msgs.SetPathParametersLinResponse> setPathParametersLinCallback = null;
 
 	// ROSJava Subscribers for iiwa_msgs
-	// Cartesian Message Subscribers
 	private Subscriber<geometry_msgs.PoseStamped> cartesianPoseSubscriber;
+	private Subscriber<geometry_msgs.PoseStamped> cartesianPoseLinSubscriber;
+	private Subscriber<geometry_msgs.TwistStamped> cartesianVelocitySubscriber;
 	private Subscriber<iiwa_msgs.JointPosition> jointPositionSubscriber;
 	private Subscriber<iiwa_msgs.JointPositionVelocity> jointPositionVelocitySubscriber;
 	private Subscriber<iiwa_msgs.JointVelocity> jointVelocitySubscriber;
 
+	private TransformListener tfListener;
 
 	// Object to easily build iiwa_msgs from the current robot state
-	private iiwaMessageGenerator helper;
+	private MessageGenerator helper;
 
 	// Local iiwa_msgs to store received messages 
 	private geometry_msgs.PoseStamped cp;
+	private geometry_msgs.PoseStamped cp_lin;
+	private geometry_msgs.TwistStamped cv;
 	private iiwa_msgs.JointPosition jp;
 	private iiwa_msgs.JointPositionVelocity jpv;
 	private iiwa_msgs.JointVelocity jv;
 
 	private Boolean new_jp = new Boolean("false");
 	private Boolean new_cp = new Boolean("false");
+	private Boolean new_cp_lin = new Boolean("false");
 	private Boolean new_jpv = new Boolean("false");
-	private Boolean new_jv = new Boolean("false");
 
 	// Current control strategy
-	CommandType currentCommandType = null;
+	public CommandType currentCommandType = null;
 
 	// Name to use to build the name of the ROS topics
 	private String iiwaName = "iiwa";
@@ -98,8 +124,8 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	 * @param robot: an iiwa Robot, its current state is used to set up initial values for the messages.
 	 * @param robotName: name of the robot, it will be used for the topic names with this format : <robot name>/command/<iiwa message type>
 	 */
-	public iiwaSubscriber(LBR robot, String robotName) {
-		this(robot, robot.getFlange(), robotName);
+	public iiwaSubscriber(LBR robot, String robotName, Configuration configuration) {
+		this(robot, robot.getFlange(), robotName, configuration);
 	}
 
 	/**
@@ -110,18 +136,16 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	 * @param frame: reference frame to set the values of the Cartesian position.
 	 * @param robotName : name of the robot, it will be used for the topic names with this format : <robot name>/command/<iiwa message type>
 	 */
-	public iiwaSubscriber(LBR robot, ObjectFrame frame, String robotName) {
+	public iiwaSubscriber(LBR robot, ObjectFrame frame, String robotName, Configuration configuration) {
 		iiwaName = robotName;
-		helper = new iiwaMessageGenerator(iiwaName);
+		helper = new MessageGenerator(iiwaName, configuration);
 
 		cp = helper.buildMessage(geometry_msgs.PoseStamped._TYPE);
+		cp_lin = helper.buildMessage(geometry_msgs.PoseStamped._TYPE);
+		cv = helper.buildMessage(geometry_msgs.TwistStamped._TYPE);
 		jp = helper.buildMessage(iiwa_msgs.JointPosition._TYPE);
 		jpv = helper.buildMessage(iiwa_msgs.JointPositionVelocity._TYPE);
 		jv = helper.buildMessage(iiwa_msgs.JointVelocity._TYPE);
-
-		helper.getCurrentCartesianPose(cp, robot, frame);
-		helper.getCurrentJointPosition(jp, robot);
-		helper.getCurrentJointPositionVelocity(jpv, robot);
 	}
 
 	/**
@@ -137,16 +161,23 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	public void setTimeToDestinationCallback(ServiceResponseBuilder<iiwa_msgs.TimeToDestinationRequest, iiwa_msgs.TimeToDestinationResponse> callback) {
 		timeToDestinationCallback = callback;
 	}
-	
+
 	/**
 	 * Add a callback to the SetPathParameters service
 	 */
 	public void setPathParametersCallback(ServiceResponseBuilder<iiwa_msgs.SetPathParametersRequest, iiwa_msgs.SetPathParametersResponse> callback) {
 		setPathParametersCallback = callback;
 	}
+	
+	/**
+	 * Add a callback to the SetPathParametersLin service
+	 */
+	public void setPathParametersLinCallback(ServiceResponseBuilder<iiwa_msgs.SetPathParametersLinRequest, iiwa_msgs.SetPathParametersLinResponse> callback) {
+		setPathParametersLinCallback = callback;
+	}
 
 	/**
-	 * Get the last received PoseStamped message. Returns null if no new message is available.<p>
+	 * Returns the last PoseStamped message received from the /command/CartesianPose topic. Returns null if no new message is available.<p>
 	 * @return the received PoseStamped message.
 	 */
 	public geometry_msgs.PoseStamped getCartesianPose() {
@@ -155,9 +186,34 @@ public class iiwaSubscriber extends AbstractNodeMain {
 				new_cp = false;
 				return cp;
 			} else {
+				
 				return null;
 			}
-		}	}
+		}	
+	}
+
+	/**
+	 * Returns the last PoseStamped message received from the /command/CartesianPoseLin topic. Returns null if no new message is available.<p>
+	 * @return the received PoseStamped message.
+	 */
+	public geometry_msgs.PoseStamped getCartesianPoseLin() {
+		synchronized(new_cp_lin) {
+			if (new_cp_lin) {
+				new_cp_lin = false;
+				return cp_lin;
+			} else {
+				return null;
+			}
+		}	
+	}
+
+	/**
+	 * TODO
+	 * @return the received PoseStamped message.
+	 */
+	public geometry_msgs.TwistStamped getCartesianVelocity() {
+		return cv;
+	}
 
 	/**
 	 * Returns the last received Joint Position message. Returns null if no new message is available.<p>
@@ -186,7 +242,74 @@ public class iiwaSubscriber extends AbstractNodeMain {
 			} else {
 				return null;
 			}
-		}	
+		}
+	}
+
+	/**
+	 * Transforms a pose from on TF frame to another
+	 * @param pose
+	 * @param tartget_frame
+	 * @return pose transformed to target_frame
+	 */
+	public geometry_msgs.PoseStamped transformPose(geometry_msgs.PoseStamped pose, String tartget_frame) {
+		if (pose == null || tartget_frame == null) {
+			return null;
+		}
+		
+		System.out.println("Transforming pose from "+pose.getHeader().getFrameId()+" to "+tartget_frame);
+		
+		System.out.println("In: "+
+				pose.getPose().getPosition().getX()+", "+
+				pose.getPose().getPosition().getY()+", "+
+				pose.getPose().getPosition().getZ()
+		);
+
+		PoseStamped result = helper.buildMessage(PoseStamped._TYPE);
+		result.getHeader().setFrameId(tartget_frame);
+		result.getHeader().setSeq(pose.getHeader().getSeq());
+		result.getHeader().setStamp(pose.getHeader().getStamp());
+		
+		if (tfListener.getTree().canTransform(pose.getHeader().getFrameId(), tartget_frame)) {
+			Quaternion q_raw = pose.getPose().getOrientation();
+			Point t_raw = pose.getPose().getPosition();
+	
+			Quat4d q = new Quat4d(q_raw.getX(), q_raw.getY(), q_raw.getZ(), q_raw.getW());
+			Vector3d t = new Vector3d(t_raw.getX(), t_raw.getY(), t_raw.getZ());
+	
+			Matrix4d mat = new Matrix4d(q, t, 1) ;
+			
+			System.out.println("Mat: "+mat);
+			
+			Transform transform = tfListener.getTree().lookupTransformBetween(pose.getHeader().getFrameId(), tartget_frame, pose.getHeader().getStamp().totalNsecs());
+			System.out.println("Transformation: "+transform);
+			transform.invert();
+			
+			System.out.println("TransMat: "+transform.asMatrix());
+			Matrix4d transformed = transform.asMatrix();
+			transformed.mul(mat);
+			
+			System.out.println("Mat.Transformed: "+transformed);
+	
+			Matrix3d base = new Matrix3d(
+					transformed.getM00(), transformed.getM01(), transformed.getM02(),
+					transformed.getM10(), transformed.getM11(), transformed.getM12(),
+					transformed.getM20(), transformed.getM21(), transformed.getM22()
+			);
+			q.set(base);
+	
+			result.setPose(helper.getPose(transformed));
+		}
+		else {
+			result.getPose().getOrientation().setW(1);
+		}
+		
+		System.out.println("Out: "+
+				result.getPose().getPosition().getX()+", "+
+				result.getPose().getPosition().getY()+", "+
+				result.getPose().getPosition().getZ()+", "
+		);
+			
+		return result;
 	}
 
 	/**
@@ -194,7 +317,7 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	 * @return the received Joint Velocity message.
 	 */
 	public iiwa_msgs.JointVelocity getJointVelocity() {
-				return jv;
+		return jv;
 	}
 
 	/**
@@ -204,7 +327,7 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	public GraphName getDefaultNodeName() {
 		return GraphName.of(iiwaName + "/subscriber");
 	}
-
+	
 	/**
 	 * This method is called when the <i>execute</i> method from a <i>nodeMainExecutor</i> is called.<br>
 	 * Do <b>NOT</b> manually call this. <p> 
@@ -217,52 +340,90 @@ public class iiwaSubscriber extends AbstractNodeMain {
 
 		// Creating the subscribers
 		cartesianPoseSubscriber = connectedNode.newSubscriber(iiwaName + "/command/CartesianPose", geometry_msgs.PoseStamped._TYPE);
+		cartesianPoseLinSubscriber = connectedNode.newSubscriber(iiwaName + "/command/CartesianPoseLin", geometry_msgs.PoseStamped._TYPE);
+		cartesianVelocitySubscriber = connectedNode.newSubscriber(iiwaName + "/command/CartesianVelocity", geometry_msgs.TwistStamped._TYPE);
 		jointPositionSubscriber = connectedNode.newSubscriber(iiwaName + "/command/JointPosition", iiwa_msgs.JointPosition._TYPE);
 		jointPositionVelocitySubscriber = connectedNode.newSubscriber(iiwaName + "/command/JointPositionVelocity", iiwa_msgs.JointPositionVelocity._TYPE);
 		jointVelocitySubscriber = connectedNode.newSubscriber(iiwaName + "/command/JointVelocity", iiwa_msgs.JointVelocity._TYPE);
-
+		tfListener = new TransformListener(connectedNode);
 
 		// Subscribers' callbacks
 		cartesianPoseSubscriber.addMessageListener(new MessageListener<geometry_msgs.PoseStamped>() {
 			@Override
 			public void onNewMessage(geometry_msgs.PoseStamped position) {
-				synchronized (new_cp) {
-					cp = position;
-					currentCommandType = CommandType.CARTESIAN_POSE;
-					new_cp = true;
+				// accept only incrementing sequence numbers (unless the sender is forgetting to set it)
+				if ((position.getHeader().getSeq() == 0 && cp.getHeader().getSeq() == 0) 
+						|| position.getHeader().getSeq() > cp.getHeader().getSeq()) {
+					synchronized (new_cp) {
+						cp = position;
+						currentCommandType = CommandType.CARTESIAN_POSE;
+						new_cp = true;
+					}
+				}
+			}
+		});
+
+		cartesianVelocitySubscriber.addMessageListener(new MessageListener<geometry_msgs.TwistStamped>() {
+			@Override
+			public void onNewMessage(geometry_msgs.TwistStamped velocity) {
+				// accept only incrementing sequence numbers (unless the sender is forgetting to set it)
+				if ((velocity.getHeader().getSeq() == 0 && cv.getHeader().getSeq() == 0) 
+						|| velocity.getHeader().getSeq() > cv.getHeader().getSeq()) {
+					cv = velocity;
+					currentCommandType = CommandType.CARTESIAN_VELOCITY;
+				}
+			}
+		});
+
+		cartesianPoseLinSubscriber.addMessageListener(new MessageListener<geometry_msgs.PoseStamped>() {
+			@Override
+			public void onNewMessage(geometry_msgs.PoseStamped position) {
+				synchronized (new_cp_lin) {
+					cp_lin = position;
+					currentCommandType = CommandType.CARTESIAN_POSE_LIN;
+					new_cp_lin = true;
 				}
 			}
 		});
 
 		jointPositionSubscriber.addMessageListener(new MessageListener<iiwa_msgs.JointPosition>() {
 			@Override
-			public void onNewMessage(iiwa_msgs.JointPosition position){
-				synchronized (new_jp) {
-					jp = position;
-					currentCommandType = CommandType.JOINT_POSITION;
-					new_jp = true;
+			public void onNewMessage(iiwa_msgs.JointPosition position) {
+				// accept only incrementing sequence numbers (unless the sender is forgetting to set it)
+				if ((position.getHeader().getSeq() == 0 && jp.getHeader().getSeq() == 0) 
+						|| position.getHeader().getSeq() > jp.getHeader().getSeq()) {
+					synchronized (new_jp) {
+						jp = position;
+						currentCommandType = CommandType.JOINT_POSITION;
+						new_jp = true;
+					}
 				}
 			}
 		});
 
 		jointPositionVelocitySubscriber.addMessageListener(new MessageListener<iiwa_msgs.JointPositionVelocity>() {
 			@Override
-			public void onNewMessage(iiwa_msgs.JointPositionVelocity positionVelocity){
-				synchronized (new_jpv) {
-					jpv = positionVelocity;
-					currentCommandType = CommandType.JOINT_POSITION_VELOCITY;
-					new_jpv = true;
+			public void onNewMessage(iiwa_msgs.JointPositionVelocity positionVelocity) {
+				// accept only incrementing sequence numbers (unless the sender is forgetting to set it)
+				if ((positionVelocity.getHeader().getSeq() == 0 && jpv.getHeader().getSeq() == 0) 
+						|| positionVelocity.getHeader().getSeq() > jpv.getHeader().getSeq()) {
+					synchronized (new_jpv) {
+						jpv = positionVelocity;
+						currentCommandType = CommandType.JOINT_POSITION_VELOCITY;
+						new_jpv = true;
+					}
 				}
 			}
 		});
 
 		jointVelocitySubscriber.addMessageListener(new MessageListener<iiwa_msgs.JointVelocity>() {
 			@Override
-			public void onNewMessage(iiwa_msgs.JointVelocity velocity){
-				synchronized(new_jv) {
+			public void onNewMessage(iiwa_msgs.JointVelocity velocity) {
+				// accept only incrementing sequence numbers (unless the sender is forgetting to set it)
+				if ((velocity.getHeader().getSeq() == 0 && jv.getHeader().getSeq() == 0) 
+						|| velocity.getHeader().getSeq() > jv.getHeader().getSeq()) {
 					jv = velocity;
 					currentCommandType = CommandType.JOINT_VELOCITY;
-					new_jv = true;
 				}
 			}
 		});
@@ -282,13 +443,21 @@ public class iiwaSubscriber extends AbstractNodeMain {
 					"iiwa_msgs/TimeToDestination", 
 					timeToDestinationCallback);
 		}
-		
+
 		// Creating TimeToDestination service if a callback has been defined.
 		if (setPathParametersCallback != null) {
 			setPathParametersServer = node.newServiceServer(
 					iiwaName + "/configuration/pathParameters", 
 					"iiwa_msgs/SetPathParameters",
 					setPathParametersCallback);
+		}
+		
+		// Creating TimeToDestination service if a callback has been defined.
+		if (setPathParametersLinCallback != null) {
+			setPathParametersLinServer = node.newServiceServer(
+					iiwaName + "/configuration/pathParametersLin", 
+					"iiwa_msgs/SetPathParametersLin",
+					setPathParametersLinCallback);
 		}
 	}
 }
