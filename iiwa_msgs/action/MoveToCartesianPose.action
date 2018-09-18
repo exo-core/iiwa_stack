@@ -1,0 +1,10 @@
+# Goal
+geometry_msgs/PoseStamped pose
+
+---
+# Result
+bool success
+string error
+
+---
+# Feedback

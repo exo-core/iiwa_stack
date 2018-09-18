@@ -37,9 +37,9 @@ public class ControlModeHandler {
 	private ConfigureSmartServoRequest lastSmartServoRequest;
 
 	private MessageGenerator helper;
-	private GoalReachedEventListener handler = new GoalReachedEventListener(publisher);
+	private GoalReachedEventListener handler;
 
-	public ControlModeHandler(LBR robot, Tool tool, ObjectFrame toolFrame, iiwaPublisher publisher, Configuration configuration) {
+	public ControlModeHandler(LBR robot, Tool tool, ObjectFrame toolFrame, iiwaPublisher publisher, iiwaActionServer actionServer, Configuration configuration) {
 		this.robot = robot;
 		this.tool = tool;
 		this.toolFrame = toolFrame;
@@ -48,6 +48,8 @@ public class ControlModeHandler {
 		jointVelocity = configuration.getDefaultRelativeJointVelocity();
 		jointAcceleration = configuration.getDefaultRelativeJointAcceleration();
 		overrideJointAcceleration = 1.0;
+		
+		handler = new GoalReachedEventListener(publisher, actionServer);
 	}
 
 	public void setLastSmartServoRequest(ConfigureSmartServoRequest request) { this.lastSmartServoRequest = request; }

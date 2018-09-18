@@ -26,6 +26,9 @@ package de.tum.in.camp.kuka.ros.app;
 import geometry_msgs.PoseStamped;
 import iiwa_msgs.ConfigureSmartServoRequest;
 import iiwa_msgs.ConfigureSmartServoResponse;
+import iiwa_msgs.MoveToCartesianPoseActionGoal;
+import iiwa_msgs.MoveToCartesianPoseGoal;
+import iiwa_msgs.MoveToJointPositionActionGoal;
 import iiwa_msgs.SetPathParametersLinRequest;
 import iiwa_msgs.SetPathParametersLinResponse;
 import iiwa_msgs.TimeToDestinationRequest;
@@ -49,6 +52,8 @@ import de.tum.in.camp.kuka.ros.Logger;
 import de.tum.in.camp.kuka.ros.Motions;
 import de.tum.in.camp.kuka.ros.UnsupportedControlModeException;
 import de.tum.in.camp.kuka.ros.Configuration;
+import de.tum.in.camp.kuka.ros.iiwaActionServer;
+import de.tum.in.camp.kuka.ros.iiwaActionServer.Goal;
 import de.tum.in.camp.kuka.ros.iiwaSubscriber;
 import de.tum.in.camp.kuka.ros.iiwaSubscriber.CommandType;
 
@@ -72,8 +77,8 @@ public class ROSSmartServo extends ROSBaseApplication {
 		nodeConfSubscriber.setTimeProvider(configuration.getTimeProvider());
 		nodeConfSubscriber.setNodeName(Configuration.getRobotName() + "/iiwa_subscriber");
 		nodeConfSubscriber.setMasterUri(uri);
-		nodeConfSubscriber.setTcpRosBindAddress(BindAddress.newPublic(30004));
-		nodeConfSubscriber.setXmlRpcBindAddress(BindAddress.newPublic(30005));
+		nodeConfSubscriber.setTcpRosBindAddress(BindAddress.newPublic(getNewAddress()));
+		nodeConfSubscriber.setXmlRpcBindAddress(BindAddress.newPublic(getNewAddress()));
 	}
 
 	@Override
@@ -240,29 +245,39 @@ public class ROSSmartServo extends ROSBaseApplication {
 	 * If the robot can move, then it will move to this new position.
 	 */
 	private void moveRobot() {
-		if (subscriber.currentCommandType != null) {
-			try {
+		try {
+			if (actionServer.newGoalAvailable()) {
+				while (actionServer.newGoalAvailable()) {
+					actionServer.markCurrentGoalFailed("Received new goal. Dropping old task.");
+					actionServer.acceptNewGoal();
+				}
+				
+				Goal<?> actionGoal = actionServer.getCurrentGoal();
+				switch (actionGoal.goalType) {
+				case CARTESIAN_POSE:
+					moveToCartesianPose(((MoveToCartesianPoseActionGoal)actionGoal.goal).getGoal().getPose());
+					lastCommandType = CommandType.CARTESIAN_POSE;
+					break;
+				case CARTESIAN_POSE_LIN:
+					moveToCartesianPoseLin(((MoveToCartesianPoseActionGoal)actionGoal.goal).getGoal().getPose());
+					lastCommandType = CommandType.CARTESIAN_POSE_LIN;
+					break;
+				case JOINT_POSITION:
+					moveToJointPosition(((MoveToJointPositionActionGoal)actionGoal.goal).getGoal().getJointPosition());
+					lastCommandType = CommandType.JOINT_POSITION;
+					break;
+				default:
+					throw new UnsupportedControlModeException("goalType: "+actionGoal.goalType);
+				}
+			}
+			else if (subscriber.currentCommandType != null) {
 				switch (subscriber.currentCommandType) {
 				case CARTESIAN_POSE: {
-					if (lastCommandType == CommandType.CARTESIAN_POSE_LIN) {
-						motion = controlModeHandler.switchToSmartServo(motion, linearMotion);
-					}
-					PoseStamped commandPosition = subscriber.getCartesianPose();
-					commandPosition = subscriber.transformPose(commandPosition, robotBaseFrameID);
-					if (commandPosition != null) {
-						motions.cartesianPositionMotion(motion, commandPosition);
-					}
+					moveToCartesianPose(subscriber.getCartesianPose());
 					break;
 				}
 				case CARTESIAN_POSE_LIN: {
-					if (lastCommandType != CommandType.CARTESIAN_POSE_LIN) {
-						linearMotion = controlModeHandler.switchToSmartServoLIN(motion, linearMotion);
-					}
-					PoseStamped commandPosition = subscriber.getCartesianPoseLin();
-					commandPosition = subscriber.transformPose(commandPosition, robotBaseFrameID);
-					if (commandPosition != null) {
-						motions.cartesianPositionLinMotion(linearMotion, commandPosition);
-					}
+					moveToCartesianPoseLin(subscriber.getCartesianPoseLin());
 					break;
 				}
 				case CARTESIAN_VELOCITY: {
@@ -271,11 +286,7 @@ public class ROSSmartServo extends ROSBaseApplication {
 					break;
 				}
 				case JOINT_POSITION: {
-					if (lastCommandType == CommandType.CARTESIAN_POSE_LIN) { 
-						motion = controlModeHandler.switchToSmartServo(motion, linearMotion);
-					}
-					iiwa_msgs.JointPosition commandPosition = subscriber.getJointPosition();
-					motions.jointPositionMotion(motion, commandPosition);
+					moveToJointPosition(subscriber.getJointPosition());
 					break;
 				}
 				case JOINT_POSITION_VELOCITY: {
@@ -299,19 +310,19 @@ public class ROSSmartServo extends ROSBaseApplication {
 					break;
 				}
 				default:
-					throw new UnsupportedControlModeException();
+					throw new UnsupportedControlModeException("commandType: "+subscriber.currentCommandType);
 				}
 				
 				lastCommandType = subscriber.currentCommandType;
 			}
-			catch (Exception e) {
-				e.printStackTrace();
-				Logger.error(e.getClass().getName() + ": " + e.getMessage());
-				lastCommandType = subscriber.currentCommandType;
-				
-				// prevent an error from popping up over and over again
-				subscriber.currentCommandType = null;
-			}
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+			Logger.error(e.getClass().getName() + ": " + e.getMessage());
+			lastCommandType = subscriber.currentCommandType;
+			
+			// prevent an error from popping up over and over again
+			subscriber.currentCommandType = null;
 		}
 	}
 
@@ -320,5 +331,33 @@ public class ROSSmartServo extends ROSBaseApplication {
 		configureSmartServoLock.lock();
 		moveRobot();
 		configureSmartServoLock.unlock();
-	}	
+	}
+	
+	protected void moveToCartesianPose(PoseStamped commandPosition) {
+		if (lastCommandType == CommandType.CARTESIAN_POSE_LIN) {
+			motion = controlModeHandler.switchToSmartServo(motion, linearMotion);
+		}
+		commandPosition = subscriber.transformPose(commandPosition, robotBaseFrameID);
+		if (commandPosition != null) {
+			motions.cartesianPositionMotion(motion, commandPosition);
+		}
+	}
+	
+	protected void moveToCartesianPoseLin(PoseStamped commandPosition) {
+		if (lastCommandType != CommandType.CARTESIAN_POSE_LIN) {
+			linearMotion = controlModeHandler.switchToSmartServoLIN(motion, linearMotion);
+		}
+		
+		commandPosition = subscriber.transformPose(commandPosition, robotBaseFrameID);
+		if (commandPosition != null) {
+			motions.cartesianPositionLinMotion(linearMotion, commandPosition);
+		}
+	}
+
+	protected void moveToJointPosition(iiwa_msgs.JointPosition commandPosition) {
+		if (lastCommandType == CommandType.CARTESIAN_POSE_LIN) {
+			motion = controlModeHandler.switchToSmartServo(motion, linearMotion);
+		}
+		motions.jointPositionMotion(motion, commandPosition);
+	}
 }

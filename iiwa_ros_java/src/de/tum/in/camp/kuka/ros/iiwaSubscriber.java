@@ -113,6 +113,9 @@ public class iiwaSubscriber extends AbstractNodeMain {
 
 	// Current control strategy
 	public CommandType currentCommandType = null;
+	
+	// Current action type
+	public CommandType currentActionType = null;
 
 	// Name to use to build the name of the ROS topics
 	private String iiwaName = "iiwa";
@@ -252,7 +255,7 @@ public class iiwaSubscriber extends AbstractNodeMain {
 	 * @return pose transformed to target_frame
 	 */
 	public geometry_msgs.PoseStamped transformPose(geometry_msgs.PoseStamped pose, String tartget_frame) {
-		if (pose == null || tartget_frame == null) {
+		if (pose == null || pose.getHeader().getFrameId() == null || tartget_frame == null) {
 			return null;
 		}
 		

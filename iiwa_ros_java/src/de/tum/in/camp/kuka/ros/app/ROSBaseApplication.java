@@ -49,6 +49,7 @@ import com.kuka.roboticsAPI.uiModel.userKeys.IUserKeyListener;
 import de.tum.in.camp.kuka.ros.ControlModeHandler;
 import de.tum.in.camp.kuka.ros.GoalReachedEventListener;
 import de.tum.in.camp.kuka.ros.Configuration;
+import de.tum.in.camp.kuka.ros.iiwaActionServer;
 import de.tum.in.camp.kuka.ros.iiwaPublisher;
 import de.tum.in.camp.kuka.ros.Logger;
 
@@ -77,10 +78,12 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 	protected boolean running;
 
 	protected iiwaPublisher publisher;
+	protected iiwaActionServer actionServer;
 	protected Configuration configuration;
 
 	// ROS Configuration and Node execution objects.
 	protected NodeConfiguration nodeConfPublisher;
+	protected NodeConfiguration nodeConfActionServer;
 	protected NodeConfiguration nodeConfConfiguration;
 	protected NodeMainExecutor nodeMainExecutor;
 
@@ -94,6 +97,8 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 	protected abstract void initializeApp();
 	protected abstract void beforeControlLoop();
 	protected abstract void controlLoop();
+	
+	private int address = 30000;
 
 	/*
 	 * SmartServo control makes the control loop very slow
@@ -114,6 +119,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 		// Standard configuration.
 		configuration = new Configuration();
 		publisher = new iiwaPublisher(Configuration.getRobotName(), configuration);
+		actionServer = new iiwaActionServer(robot, Configuration.getRobotName(), configuration);
 		robotBaseFrameID = Configuration.getRobotName()+robotBaseFrameIDSuffix;
 
 		// ROS initialization.
@@ -124,15 +130,22 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 			nodeConfConfiguration.setTimeProvider(configuration.getTimeProvider());
 			nodeConfConfiguration.setNodeName(Configuration.getRobotName() + "/iiwa_configuration");
 			nodeConfConfiguration.setMasterUri(uri);			
-			nodeConfConfiguration.setTcpRosBindAddress(BindAddress.newPublic(30000));
-			nodeConfConfiguration.setXmlRpcBindAddress(BindAddress.newPublic(30001));			
+			nodeConfConfiguration.setTcpRosBindAddress(BindAddress.newPublic(getNewAddress()));
+			nodeConfConfiguration.setXmlRpcBindAddress(BindAddress.newPublic(getNewAddress()));	
+
+			nodeConfActionServer = NodeConfiguration.newPublic(Configuration.getRobotIp());
+			nodeConfActionServer.setTimeProvider(configuration.getTimeProvider());
+			nodeConfActionServer.setNodeName(Configuration.getRobotName() + "/iiwa_action_server");
+			nodeConfActionServer.setMasterUri(uri);			
+			nodeConfActionServer.setTcpRosBindAddress(BindAddress.newPublic(getNewAddress()));
+			nodeConfActionServer.setXmlRpcBindAddress(BindAddress.newPublic(getNewAddress()));		
 			
 			nodeConfPublisher = NodeConfiguration.newPublic(Configuration.getRobotIp());
 			nodeConfPublisher.setTimeProvider(configuration.getTimeProvider());
 			nodeConfPublisher.setNodeName(Configuration.getRobotName() + "/iiwa_publisher");
 			nodeConfPublisher.setMasterUri(uri);
-			nodeConfPublisher.setTcpRosBindAddress(BindAddress.newPublic(30002));
-			nodeConfPublisher.setXmlRpcBindAddress(BindAddress.newPublic(30003));
+			nodeConfPublisher.setTcpRosBindAddress(BindAddress.newPublic(getNewAddress()));
+			nodeConfPublisher.setXmlRpcBindAddress(BindAddress.newPublic(getNewAddress()));
 
 			// Additional configuration needed in subclasses.
 			configureNodes(uri);
@@ -147,6 +160,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 		try {
 			// Start the Publisher node with the set up configuration.
 			nodeMainExecutor = DefaultNodeMainExecutor.newDefault();
+			nodeMainExecutor.execute(actionServer, nodeConfActionServer);
 			nodeMainExecutor.execute(publisher, nodeConfPublisher);
 			nodeMainExecutor.execute(configuration, nodeConfConfiguration);
 
@@ -171,7 +185,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 		initSuccessful = true;  // We cannot throw here.
 	}
 
-	public void run() {	
+	public void run() {
 		if (!initSuccessful) {
 			throw new RuntimeException("Could not init the RoboticApplication successfully");
 		}
@@ -205,7 +219,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 			toolFrame = robot.getFlange();
 		}
 
-		controlModeHandler = new ControlModeHandler(robot, tool, toolFrame, publisher, configuration);
+		controlModeHandler = new ControlModeHandler(robot, tool, toolFrame, publisher, actionServer, configuration);
 		motion = controlModeHandler.createSmartServoMotion();
 		// Publish joint state?
 		publisher.setPublishJointStates(configuration.getPublishJointStates());
@@ -232,6 +246,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 
 				// This will publish the current robot state on the various ROS topics.
 				publisher.publishCurrentState(robot, motion, toolFrame);
+				//actionServer.publishCurrentState();
 
 				if ((decimationCounter % controlDecimation) == 0)
 					controlLoop();  // Perform control loop specified by subclass
@@ -239,6 +254,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 		}
 		catch (Exception e) {
 			Logger.info("ROS control loop aborted. " + e.toString());
+			e.printStackTrace();
 		} finally {
 			cleanup();
 			Logger.info("ROS control loop has ended. Application terminated.");
@@ -268,5 +284,11 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 			nodeMainExecutor.getScheduledExecutorService().shutdownNow();
 		}
 		Logger.info("Stopped ROS nodes");
+	}
+	
+	int getNewAddress() {
+		int newAddress = address;
+		address++;
+		return newAddress;
 	}
 }
