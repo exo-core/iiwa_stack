@@ -4,7 +4,9 @@ import geometry_msgs.Pose;
 import geometry_msgs.Quaternion;
 
 import com.kuka.roboticsAPI.deviceModel.JointPosition;
+import com.kuka.roboticsAPI.geometricModel.AbstractFrame;
 import com.kuka.roboticsAPI.geometricModel.Frame;
+import com.kuka.roboticsAPI.geometricModel.ObjectFrame;
 import com.kuka.roboticsAPI.geometricModel.math.Matrix;
 import com.kuka.roboticsAPI.geometricModel.math.MatrixBuilder;
 import com.kuka.roboticsAPI.geometricModel.math.MatrixRotation;
@@ -196,6 +198,17 @@ public final class Conversions {
 	 */
 	public static Frame rosPoseToKukaFrame(geometry_msgs.Pose rosPose) throws IllegalArgumentException {
 		return new Frame(rosPoseToKukaTransformation(rosPose));
+	}
+
+	/**
+	 * Converts a geometry_msgs.Pose message to a Frame object in KUKA APIs
+	 * @param parent : parent Frame
+	 * @param rosPose : starting Pose
+	 * @return resulting Frame
+	 * @throws InvalidArgumentException
+	 */
+	public static Frame rosPoseToKukaFrame(AbstractFrame parent, geometry_msgs.Pose rosPose) throws IllegalArgumentException {
+		return new Frame(parent, rosPoseToKukaTransformation(rosPose));
 	}
 
 	/**

@@ -36,7 +36,7 @@ public class Motions {
 
 	public void cartesianPositionMotion(SmartServo motion, geometry_msgs.PoseStamped commandPosition) {
 		if (commandPosition != null) {
-			Frame destinationFrame = Conversions.rosPoseToKukaFrame(commandPosition.getPose());
+			Frame destinationFrame = Conversions.rosPoseToKukaFrame(robot.getRootFrame(), commandPosition.getPose());
 			if (robot.isReadyToMove()) {
 				motion.getRuntime().setDestination(destinationFrame);
 			}
@@ -45,7 +45,7 @@ public class Motions {
 	
 	public void cartesianPositionLinMotion(SmartServoLIN linearMotion, PoseStamped commandPosition) {
 		if (commandPosition != null) {
-			Frame destinationFrame = Conversions.rosPoseToKukaFrame(commandPosition.getPose());
+			Frame destinationFrame = Conversions.rosPoseToKukaFrame(robot.getRootFrame(), commandPosition.getPose());
 			if (robot.isReadyToMove()) {
 					linearMotion.getRuntime().setDestination(destinationFrame);
 			}

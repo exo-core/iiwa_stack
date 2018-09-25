@@ -42,6 +42,7 @@ import com.kuka.roboticsAPI.deviceModel.LBR;
 import com.kuka.roboticsAPI.geometricModel.ObjectFrame;
 import com.kuka.roboticsAPI.geometricModel.Tool;
 import com.kuka.roboticsAPI.geometricModel.World;
+import com.kuka.roboticsAPI.geometricModel.math.Transformation;
 import com.kuka.roboticsAPI.uiModel.userKeys.IUserKey;
 import com.kuka.roboticsAPI.uiModel.userKeys.IUserKeyBar;
 import com.kuka.roboticsAPI.uiModel.userKeys.IUserKeyListener;
@@ -98,7 +99,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 	protected abstract void beforeControlLoop();
 	protected abstract void controlLoop();
 	
-	private int address = 30000;
+	private int address;
 
 	/*
 	 * SmartServo control makes the control loop very slow
@@ -115,6 +116,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 		Logger.setSunriseLogger(getLogger());
 		
 		robot = getContext().getDeviceFromType(LBR.class);
+		address = 30000;
 
 		// Standard configuration.
 		configuration = new Configuration();
@@ -131,7 +133,7 @@ public abstract class ROSBaseApplication extends RoboticsAPIApplication {
 			nodeConfConfiguration.setNodeName(Configuration.getRobotName() + "/iiwa_configuration");
 			nodeConfConfiguration.setMasterUri(uri);			
 			nodeConfConfiguration.setTcpRosBindAddress(BindAddress.newPublic(getNewAddress()));
-			nodeConfConfiguration.setXmlRpcBindAddress(BindAddress.newPublic(getNewAddress()));	
+			nodeConfConfiguration.setXmlRpcBindAddress(BindAddress.newPublic(getNewAddress()));
 
 			nodeConfActionServer = NodeConfiguration.newPublic(Configuration.getRobotIp());
 			nodeConfActionServer.setTimeProvider(configuration.getTimeProvider());
