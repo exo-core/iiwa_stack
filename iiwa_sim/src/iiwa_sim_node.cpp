@@ -32,17 +32,25 @@
 
 iiwa_sim::SimNode::SimNode() :
 	_moveToJointPositionServer(_nh, "move_to_joint_position", false),
-	_moveGroupClient("move_group", false) {
+	_moveGroupClient("move_group", true) {
+
+	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
+	_numPlanningAttempts = _nh.param<double>("num_planning_attempts", _numPlanningAttempts);
+	_allowedPlanningTime = _nh.param<double>("allowed_planning_time", _allowedPlanningTime);
+	_maxVelocityScalingFactor = _nh.param<double>("max_velocity_scaling_factor", _maxVelocityScalingFactor);
+	_maxAccelerationScalingFactor = _nh.param<double>("max_acceleration_scaling_factor", _maxAccelerationScalingFactor);
 
 	ROS_INFO("[iiwa_sim] Waiting for action clients...");
 
 	_moveGroupClient.waitForServer();
 
-	ROS_INFO("[iiwa_sim] Starting action servers");
+	ROS_INFO("[iiwa_sim] Starting action servers...");
 
 	_moveToJointPositionServer.registerGoalCallback(boost::bind(&SimNode::moveToJointPositionGoalCB, this));
 	//_moveToJointPositionServer.registerPreemptCallback(boost::bind(&SimNode::moveToJointPositionPreemptCB, this));
 	_moveToJointPositionServer.start();
+
+	ROS_INFO("[iiwa_sim] Ready.");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -87,11 +95,12 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 	iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal = _moveToJointPositionServer.acceptNewGoal();
 
 	moveit_msgs::MoveGroupGoal moveitGoal;
-	ros::Time now = ros::Time::now();
+	//ros::Time now = ros::Time::now();
+	ros::Time now = goal->joint_position.header.stamp;
 
 	moveitGoal.request.workspace_parameters.header.stamp = now;
 	moveitGoal.request.workspace_parameters.header.seq = _moveGroupSeq;
-	moveitGoal.request.workspace_parameters.header.frame_id = '/base_link';
+	moveitGoal.request.workspace_parameters.header.frame_id = goal->joint_position.header.frame_id;
 	moveitGoal.request.workspace_parameters.min_corner.x = -1.0;
 	moveitGoal.request.workspace_parameters.min_corner.y = -1.0;
 	moveitGoal.request.workspace_parameters.min_corner.z = -1.0;

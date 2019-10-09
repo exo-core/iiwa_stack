@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="robot_name" default="iiwa" />
+
+    <group ns="iiwa">
+        <param name="move_group" type="string" value="$(arg robot_name)" />
+        <param name="num_planning_attempts" type="double" value="10" />
+        <param name="allowed_planning_time" type="double" value="5.0" />
+        <param name="max_velocity_scaling_factor" type="double" value="1.0" />
+        <param name="max_acceleration_scaling_factor" type="double" value="1.0" />
+
+        <node name="iiwa_sim" pkg="iiwa_sim" type="iiwa_sim_node" output="screen" />
+    </group>
+</launch>
