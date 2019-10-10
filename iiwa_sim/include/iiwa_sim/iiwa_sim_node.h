@@ -74,16 +74,21 @@ namespace iiwa_sim {
 			 * @param angle
 			 * @return
 			 */
-			moveit_msgs::JointConstraint getJointConstraint(std::string jointName, double angle);
+			moveit_msgs::JointConstraint getJointConstraint(const std::string& jointName, const double angle) const;
+
+			moveit_msgs::PositionConstraint getPositionConstraint(const geometry_msgs::PoseStamped& pose) const;
+			moveit_msgs::OrientationConstraint getOrientationConstraint(const geometry_msgs::PoseStamped& pose) const;
 
 			/**
 			 * Goal callback for move_to_joint_position action
 			 */
 			void moveToJointPositionGoalCB();
+			void moveToCartesianPoseGoalCB();
 
 			void moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& result);
 
 			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal);
+			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal);
 
 			moveit_msgs::MoveGroupGoal getBlankMoveItGoal(const std_msgs::Header& header) const;
 
@@ -92,6 +97,7 @@ namespace iiwa_sim {
 
 			// Action servers
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;
+			actionlib::SimpleActionServer<iiwa_msgs::MoveToCartesianPoseAction> _moveToCartesianPoseServer;
 
 			// Action client
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction> _moveGroupClient;

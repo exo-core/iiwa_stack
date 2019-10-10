@@ -32,6 +32,7 @@
 
 iiwa_sim::SimNode::SimNode() :
 	_moveToJointPositionServer(_nh, "move_to_joint_position", false),
+	_moveToCartesianPoseServer(_nh, "move_to_cartesian_pose", false),
 	_moveGroupClient("move_group", true) {
 
 	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
@@ -50,6 +51,10 @@ iiwa_sim::SimNode::SimNode() :
 	//_moveToJointPositionServer.registerPreemptCallback(boost::bind(&SimNode::moveToJointPositionPreemptCB, this));
 	_moveToJointPositionServer.start();
 
+	_moveToCartesianPoseServer.registerGoalCallback(boost::bind(&SimNode::moveToCartesianPoseGoalCB, this));
+	//_moveToCartesianPoseServer.registerPreemptCallback(boost::bind(&SimNode::moveToCartesianPosePreemptCB, this));
+	_moveToCartesianPoseServer.start();
+
 	ROS_INFO("[iiwa_sim] Ready.");
 }
 
@@ -66,14 +71,55 @@ void iiwa_sim::SimNode::spin() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-moveit_msgs::JointConstraint iiwa_sim::SimNode::getJointConstraint(std::string jointName, double angle) {
-	moveit_msgs::JointConstraint joint_constraint;
-	joint_constraint.joint_name = jointName;
-	joint_constraint.position = angle;
-	joint_constraint.tolerance_above = 0.0001;
-	joint_constraint.tolerance_below = 0.0001;
-	joint_constraint.weight = 1.0;
-	return joint_constraint;
+moveit_msgs::JointConstraint iiwa_sim::SimNode::getJointConstraint(const std::string& jointName, const double angle) const{
+	moveit_msgs::JointConstraint jointConstraint;
+	jointConstraint.joint_name = jointName;
+	jointConstraint.position = angle;
+	jointConstraint.tolerance_above = 0.0001;
+	jointConstraint.tolerance_below = 0.0001;
+	jointConstraint.weight = 1.0;
+	return jointConstraint;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+moveit_msgs::PositionConstraint iiwa_sim::SimNode::getPositionConstraint(const geometry_msgs::PoseStamped& pose) const {
+	moveit_msgs::PositionConstraint positionConstraint;
+	positionConstraint.header = pose.header;
+	positionConstraint.link_name = "iiwa_link_ee";
+
+	positionConstraint.target_point_offset.x = 0.0;
+	positionConstraint.target_point_offset.y = 0.0;
+	positionConstraint.target_point_offset.z = 0.0;
+
+	shape_msgs::SolidPrimitive sphere;
+	sphere.type = shape_msgs::SolidPrimitive::SPHERE;
+	sphere.dimensions.push_back(0.001);
+
+	positionConstraint.constraint_region.primitives.push_back(sphere);
+	positionConstraint.constraint_region.primitive_poses.push_back(pose.pose);
+
+	positionConstraint.weight = 1.0;
+
+	return positionConstraint;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+moveit_msgs::OrientationConstraint iiwa_sim::SimNode::getOrientationConstraint(const geometry_msgs::PoseStamped& pose) const {
+	moveit_msgs::OrientationConstraint orientationConstraint;
+	orientationConstraint.header = pose.header;
+	orientationConstraint.link_name = "iiwa_link_ee";
+
+	orientationConstraint.orientation = pose.pose.orientation;
+
+	orientationConstraint.absolute_x_axis_tolerance = 0.01;
+	orientationConstraint.absolute_y_axis_tolerance = 0.01;
+	orientationConstraint.absolute_z_axis_tolerance = 0.01;
+
+	orientationConstraint.weight = 1.0;
+
+	return orientationConstraint;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -93,6 +139,22 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 	cancelCurrentGoal();
 
 	iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal = _moveToJointPositionServer.acceptNewGoal();
+
+	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
+
+	_moveGroupClient.sendGoal(
+			moveitGoal,
+			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
+	);
+}
+// ---------------------------------------------------------------------------------------------------------------------
+
+void iiwa_sim::SimNode::moveToCartesianPoseGoalCB() {
+	cancelCurrentGoal();
+
+	iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal = _moveToCartesianPoseServer.acceptNewGoal();
 
 	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
 
@@ -173,6 +235,23 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal) {
+	std_msgs::Header header = goal->cartesian_pose.poseStamped.header;
+	header.seq = _moveGroupSeq++;
+
+	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
+
+	moveit_msgs::Constraints constraints;
+	constraints.position_constraints.push_back(getPositionConstraint(goal->cartesian_pose.poseStamped));
+	constraints.orientation_constraints.push_back(getOrientationConstraint(goal->cartesian_pose.poseStamped));
+
+	moveitGoal.request.goal_constraints.push_back(constraints);
+
+	return moveitGoal;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
 	if (_moveToJointPositionServer.isActive()) {
 		iiwa_msgs::MoveToJointPositionResult result;
@@ -200,6 +279,38 @@ void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState
 				result.success = false;
 				result.error = state.text_;
 				_moveToJointPositionServer.setAborted(result, state.text_);
+				break;
+			default:
+				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
+				break;
+		}
+	}
+	else if (_moveToCartesianPoseServer.isActive()) {
+		iiwa_msgs::MoveToCartesianPoseResult result;
+
+		switch (state.state_) {
+			case actionlib::SimpleClientGoalState::SUCCEEDED:
+				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
+					result.success = false;
+					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
+				}
+				else {
+					result.success = true;
+				}
+
+				_moveToCartesianPoseServer.setSucceeded(result, state.text_);
+				break;
+			case actionlib::SimpleClientGoalState::PREEMPTED:
+				result.success = false;
+				result.error = state.text_;
+				_moveToCartesianPoseServer.setPreempted(result, state.text_);
+				break;
+			case actionlib::SimpleClientGoalState::ABORTED:
+			case actionlib::SimpleClientGoalState::LOST:
+			case actionlib::SimpleClientGoalState::RECALLED:
+				result.success = false;
+				result.error = state.text_;
+				_moveToCartesianPoseServer.setAborted(result, state.text_);
 				break;
 			default:
 				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
