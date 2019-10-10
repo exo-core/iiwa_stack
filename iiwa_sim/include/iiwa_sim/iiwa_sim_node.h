@@ -83,6 +83,10 @@ namespace iiwa_sim {
 
 			void moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& result);
 
+			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal);
+
+			moveit_msgs::MoveGroupGoal getBlankMoveItGoal(const std_msgs::Header& header) const;
+
 		protected:
 			ros::NodeHandle _nh;
 

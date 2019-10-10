@@ -94,23 +94,30 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 
 	iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal = _moveToJointPositionServer.acceptNewGoal();
 
-	moveit_msgs::MoveGroupGoal moveitGoal;
-	//ros::Time now = ros::Time::now();
-	ros::Time now = goal->joint_position.header.stamp;
+	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
 
-	moveitGoal.request.workspace_parameters.header.stamp = now;
-	moveitGoal.request.workspace_parameters.header.seq = _moveGroupSeq;
-	moveitGoal.request.workspace_parameters.header.frame_id = goal->joint_position.header.frame_id;
+	_moveGroupClient.sendGoal(
+			moveitGoal,
+			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
+	);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::getBlankMoveItGoal(const std_msgs::Header& header) const {
+	moveit_msgs::MoveGroupGoal moveitGoal;
+
+	moveitGoal.request.workspace_parameters.header = header;
 	moveitGoal.request.workspace_parameters.min_corner.x = -1.0;
 	moveitGoal.request.workspace_parameters.min_corner.y = -1.0;
 	moveitGoal.request.workspace_parameters.min_corner.z = -1.0;
 	moveitGoal.request.workspace_parameters.max_corner.x = 1.0;
 	moveitGoal.request.workspace_parameters.max_corner.y = 1.0;
 	moveitGoal.request.workspace_parameters.max_corner.z = 1.0;
-	moveitGoal.request.start_state.joint_state.header.seq = _moveGroupSeq;
-	moveitGoal.request.start_state.joint_state.header.stamp = now;
-	moveitGoal.request.start_state.multi_dof_joint_state.header.seq = _moveGroupSeq;
-	moveitGoal.request.start_state.multi_dof_joint_state.header.stamp = now;
+	moveitGoal.request.start_state.joint_state.header = header;
+	moveitGoal.request.start_state.multi_dof_joint_state.header = header;
 	moveitGoal.request.start_state.is_diff = true;
 
 	moveitGoal.request.group_name = _moveGroup;
@@ -119,13 +126,10 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 	moveitGoal.request.max_velocity_scaling_factor = _maxVelocityScalingFactor;
 	moveitGoal.request.max_acceleration_scaling_factor = _maxAccelerationScalingFactor;
 
-	moveitGoal.planning_options.planning_scene_diff.robot_state.joint_state.header.seq = _moveGroupSeq;
-	moveitGoal.planning_options.planning_scene_diff.robot_state.joint_state.header.stamp = now;
-	moveitGoal.planning_options.planning_scene_diff.robot_state.multi_dof_joint_state.header.seq = _moveGroupSeq;
-	moveitGoal.planning_options.planning_scene_diff.robot_state.multi_dof_joint_state.header.stamp = now;
+	moveitGoal.planning_options.planning_scene_diff.robot_state.joint_state.header = header;
+	moveitGoal.planning_options.planning_scene_diff.robot_state.multi_dof_joint_state.header = header;
 	moveitGoal.planning_options.planning_scene_diff.robot_state.is_diff = true;
-	moveitGoal.planning_options.planning_scene_diff.world.octomap.header.seq = _moveGroupSeq;
-	moveitGoal.planning_options.planning_scene_diff.world.octomap.header.stamp = now;
+	moveitGoal.planning_options.planning_scene_diff.world.octomap.header = header;
 	moveitGoal.planning_options.planning_scene_diff.world.octomap.origin.position.x = 0.0;
 	moveitGoal.planning_options.planning_scene_diff.world.octomap.origin.position.y = 0.0;
 	moveitGoal.planning_options.planning_scene_diff.world.octomap.origin.position.z = 0.0;
@@ -133,8 +137,7 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 	moveitGoal.planning_options.planning_scene_diff.world.octomap.origin.orientation.y = 0.0;
 	moveitGoal.planning_options.planning_scene_diff.world.octomap.origin.orientation.z = 0.0;
 	moveitGoal.planning_options.planning_scene_diff.world.octomap.origin.orientation.w = 0.0;
-	moveitGoal.planning_options.planning_scene_diff.world.octomap.octomap.header.seq = _moveGroupSeq;
-	moveitGoal.planning_options.planning_scene_diff.world.octomap.octomap.header.stamp = now;
+	moveitGoal.planning_options.planning_scene_diff.world.octomap.octomap.header = header;
 	moveitGoal.planning_options.planning_scene_diff.is_diff = true;
 	moveitGoal.planning_options.plan_only = false;
 	moveitGoal.planning_options.look_around = false;
@@ -143,6 +146,17 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 	moveitGoal.planning_options.replan = false;
 	moveitGoal.planning_options.replan_attempts = 0;
 	moveitGoal.planning_options.replan_delay = 2.0;
+
+	return moveitGoal;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal) {
+	std_msgs::Header header = goal->joint_position.header;
+	header.seq = _moveGroupSeq++;
+
+	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
 
 	moveit_msgs::Constraints constraints;
 	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_1", goal->joint_position.position.a1));
@@ -154,15 +168,10 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_7", goal->joint_position.position.a7));
 	moveitGoal.request.goal_constraints.push_back(constraints);
 
-	_moveGroupSeq++;
-
-	_moveGroupClient.sendGoal(
-			moveitGoal,
-			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
-			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
-			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
-	);
+	return moveitGoal;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
 	if (_moveToJointPositionServer.isActive()) {
