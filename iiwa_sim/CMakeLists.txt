@@ -12,6 +12,7 @@ find_package(
 		actionlib
 		iiwa_msgs
 		moveit_msgs
+		tf
 )
 
 ## System dependencies are found with CMake's conventions

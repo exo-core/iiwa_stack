@@ -34,6 +34,7 @@
 #include <actionlib/client/simple_action_client.h>
 #include <actionlib/server/simple_action_server.h>
 #include <ros/ros.h>
+#include <tf/transform_listener.h>
 
 #include <iiwa_msgs/MoveAlongSplineAction.h>
 #include <iiwa_msgs/MoveToCartesianPoseAction.h>
@@ -76,28 +77,97 @@ namespace iiwa_sim {
 			 */
 			moveit_msgs::JointConstraint getJointConstraint(const std::string& jointName, const double angle) const;
 
+			/**
+			 * Create a MoveIt! constraint message for a specific target position
+			 * @param pose
+			 * @return
+			 */
 			moveit_msgs::PositionConstraint getPositionConstraint(const geometry_msgs::PoseStamped& pose) const;
+
+			/**
+			 * Create a MoveIt! constraint message for a specific target orientation
+			 * @param pose
+			 * @return
+			 */
 			moveit_msgs::OrientationConstraint getOrientationConstraint(const geometry_msgs::PoseStamped& pose) const;
 
 			/**
 			 * Goal callback for move_to_joint_position action
 			 */
 			void moveToJointPositionGoalCB();
+
+			/**
+			 * Goal callback for move_to_cartesian_pose action
+			 */
 			void moveToCartesianPoseGoalCB();
 
+			/**
+			 * Goal callback for move_to_cartesian_pose_lin action
+			 */
+			void moveToCartesianPoseLinGoalCB();
+
+			/**
+			 * Goal reached callback for MoveIt!'s move_group action
+			 * @param state
+			 * @param result
+			 */
 			void moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& result);
 
+			/**
+			 * Creates a MoveIt! move_group goal based on a target joint configuration
+			 * @param goal
+			 * @return
+			 */
 			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal);
+
+			/**
+			 * Creates a MoveIt! move_group goal based on a Cartesian target pose
+			 * @param goal
+			 * @return
+			 */
 			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal);
 
+			/**
+			 * Creates a MoveIt! move_group goal for a linear motion based on a Cartesian target pose
+			 * @param goal
+			 * @param startPose: Current pose of the end effector
+			 * @return
+			 */
+			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose);
+
+			/**
+			 * Initializes a goal for a move_group action without goal or trajectory constraints
+			 * @param header
+			 * @return
+			 */
 			moveit_msgs::MoveGroupGoal getBlankMoveItGoal(const std_msgs::Header& header) const;
+
+			/**
+			 * Interpolates two poses
+			 * @param p1: First pose
+			 * @param p2: Second pose
+			 * @param w: Weight of p2 (0 >= w >=1).
+			 * @return
+			 */
+			static tf::Pose interpolatePoses(const tf::Pose& p1, const tf::Pose& p2, const double w);
+
+			/**
+			 * Create a vector of waypoints on a straight line from p1 to p2
+			 * @param p1: start pose (not part of trajectory)
+			 * @param p2: target pose (part of trajectory)
+			 * @param stepSize: distance between waypoints
+			 * @return
+			 */
+			static std::vector<geometry_msgs::Pose> interpolateLinear(const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double stepSize);
 
 		protected:
 			ros::NodeHandle _nh;
+			tf::TransformListener _tfListener;
 
 			// Action servers
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToCartesianPoseAction> _moveToCartesianPoseServer;
+			actionlib::SimpleActionServer<iiwa_msgs::MoveToCartesianPoseAction> _moveToCartesianPoseLinServer;
 
 			// Action client
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction> _moveGroupClient;
@@ -109,6 +179,10 @@ namespace iiwa_sim {
 			int _allowedPlanningTime = 5.0;
 			int _maxVelocityScalingFactor = 1.0;
 			int _maxAccelerationScalingFactor = 1.0;
+
+			// Other parameters
+			std::string _eeFrame = "iiwa_link_ee";
+			double _stepSize = 0.001;
 	};
 }
 

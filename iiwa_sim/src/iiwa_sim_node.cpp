@@ -29,10 +29,14 @@
  */
 
 #include <iiwa_sim/iiwa_sim_node.h>
+#include <tf/LinearMath/Quaternion.h>
+#include <tf/transform_datatypes.h>
 
 iiwa_sim::SimNode::SimNode() :
+	_tfListener(_nh),
 	_moveToJointPositionServer(_nh, "move_to_joint_position", false),
 	_moveToCartesianPoseServer(_nh, "move_to_cartesian_pose", false),
+	_moveToCartesianPoseLinServer(_nh, "move_to_cartesian_pose_lin", false),
 	_moveGroupClient("move_group", true) {
 
 	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
@@ -54,6 +58,10 @@ iiwa_sim::SimNode::SimNode() :
 	_moveToCartesianPoseServer.registerGoalCallback(boost::bind(&SimNode::moveToCartesianPoseGoalCB, this));
 	//_moveToCartesianPoseServer.registerPreemptCallback(boost::bind(&SimNode::moveToCartesianPosePreemptCB, this));
 	_moveToCartesianPoseServer.start();
+
+	_moveToCartesianPoseLinServer.registerGoalCallback(boost::bind(&SimNode::moveToCartesianPoseLinGoalCB, this));
+	//_moveToCartesianPoseLinServer.registerPreemptCallback(boost::bind(&SimNode::moveToCartesianPoseLinPreemptCB, this));
+	_moveToCartesianPoseLinServer.start();
 
 	ROS_INFO("[iiwa_sim] Ready.");
 }
@@ -86,7 +94,7 @@ moveit_msgs::JointConstraint iiwa_sim::SimNode::getJointConstraint(const std::st
 moveit_msgs::PositionConstraint iiwa_sim::SimNode::getPositionConstraint(const geometry_msgs::PoseStamped& pose) const {
 	moveit_msgs::PositionConstraint positionConstraint;
 	positionConstraint.header = pose.header;
-	positionConstraint.link_name = "iiwa_link_ee";
+	positionConstraint.link_name = _eeFrame;
 
 	positionConstraint.target_point_offset.x = 0.0;
 	positionConstraint.target_point_offset.y = 0.0;
@@ -149,6 +157,7 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
 	);
 }
+
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNode::moveToCartesianPoseGoalCB() {
@@ -157,6 +166,57 @@ void iiwa_sim::SimNode::moveToCartesianPoseGoalCB() {
 	iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal = _moveToCartesianPoseServer.acceptNewGoal();
 
 	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
+
+	_moveGroupClient.sendGoal(
+			moveitGoal,
+			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
+	);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+void iiwa_sim::SimNode::moveToCartesianPoseLinGoalCB() {
+	cancelCurrentGoal();
+
+	iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal = _moveToCartesianPoseLinServer.acceptNewGoal();
+
+	if (!_tfListener.waitForTransform(_eeFrame, goal->cartesian_pose.poseStamped.header.frame_id, goal->cartesian_pose.poseStamped.header.stamp, ros::Duration(1.0))) {
+		iiwa_msgs::MoveToCartesianPoseResult result;
+		result.error = "No transformation found from "+goal->cartesian_pose.poseStamped.header.frame_id+" to "+_eeFrame;
+		result.success = false;
+		ROS_ERROR(result.error.c_str());
+		_moveToCartesianPoseLinServer.setSucceeded(result, result.error);
+		return;
+	}
+
+	tf::StampedTransform startTransform;
+
+	try {
+		_tfListener.lookupTransform(_eeFrame, goal->cartesian_pose.poseStamped.header.frame_id,
+									goal->cartesian_pose.poseStamped.header.stamp, startTransform);
+	}
+	catch (tf::TransformException ex) {
+		iiwa_msgs::MoveToCartesianPoseResult result;
+		result.error = "tf::TransformException: "+std::string(ex.what());
+		result.success = false;
+		ROS_ERROR(result.error.c_str());
+		_moveToCartesianPoseLinServer.setSucceeded(result, result.error);
+		return;
+	}
+
+	geometry_msgs::PoseStamped startPose;
+	startPose.header = goal->cartesian_pose.poseStamped.header;
+	startPose.pose.position.x = startTransform.getOrigin().x();
+	startPose.pose.position.y = startTransform.getOrigin().y();
+	startPose.pose.position.z = startTransform.getOrigin().z();
+	startPose.pose.orientation.w = startTransform.getRotation().w();
+	startPose.pose.orientation.x = startTransform.getRotation().x();
+	startPose.pose.orientation.y = startTransform.getRotation().y();
+	startPose.pose.orientation.z = startTransform.getRotation().z();
+
+	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal, startPose);
 
 	_moveGroupClient.sendGoal(
 			moveitGoal,
@@ -214,6 +274,39 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::getBlankMoveItGoal(const std_msgs:
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+tf::Pose iiwa_sim::SimNode::interpolatePoses(const tf::Pose& p1, const tf::Pose& p2, const double w) {
+	tf::Pose interpolated;
+	interpolated.setOrigin((1.0-w)*p1.getOrigin() + w*p2.getOrigin());
+	interpolated.setRotation(p1.getRotation().slerp(p2.getRotation(), w));
+	return interpolated;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+std::vector<geometry_msgs::Pose> iiwa_sim::SimNode::interpolateLinear(const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double stepSize) {
+	tf::Pose t1, t2;
+	tf::poseMsgToTF(p1, t1);
+	tf::poseMsgToTF(p2, t2);
+
+	tf::Vector3 v = t2.getOrigin() - t1.getOrigin();
+	double dist = v.length();
+	int steps = dist > 0 ? std::floor(dist / stepSize) + 1 : 1;
+
+	std::vector<geometry_msgs::Pose> waypoints;
+	geometry_msgs::Pose waypointMsg;
+	tf::Pose waypointTf;
+
+	for (unsigned int i=1; i<=steps; i++) {
+		waypointTf = interpolatePoses(t1, t2, ((float)i)/(float)steps);
+		tf::poseTFToMsg(waypointTf, waypointMsg);
+		waypoints.push_back(waypointMsg);
+	}
+
+	return waypoints;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal) {
 	std_msgs::Header header = goal->joint_position.header;
 	header.seq = _moveGroupSeq++;
@@ -245,7 +338,33 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 	constraints.position_constraints.push_back(getPositionConstraint(goal->cartesian_pose.poseStamped));
 	constraints.orientation_constraints.push_back(getOrientationConstraint(goal->cartesian_pose.poseStamped));
 
+	if (goal->cartesian_pose.redundancy.status != -1 || goal->cartesian_pose.redundancy.turn != -1) {
+		constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->cartesian_pose.redundancy.e1));
+	}
+
 	moveitGoal.request.goal_constraints.push_back(constraints);
+
+
+
+	return moveitGoal;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose) {
+	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
+
+	std::vector<geometry_msgs::Pose> waypoints = interpolateLinear(startPose.pose, goal->cartesian_pose.poseStamped.pose, _stepSize);
+	geometry_msgs::PoseStamped pose;
+	pose.header = goal->cartesian_pose.poseStamped.header;
+
+	for (const geometry_msgs::Pose& waypoint : waypoints) {
+		pose.pose = waypoint;
+		moveit_msgs::Constraints constraints;
+		constraints.position_constraints.push_back(getPositionConstraint(pose));
+		constraints.orientation_constraints.push_back(getOrientationConstraint(pose));
+		moveitGoal.request.trajectory_constraints.constraints.push_back(constraints);
+	}
 
 	return moveitGoal;
 }
@@ -253,6 +372,8 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
+	// TODO: Reduce redundant code
+
 	if (_moveToJointPositionServer.isActive()) {
 		iiwa_msgs::MoveToJointPositionResult result;
 
@@ -311,6 +432,38 @@ void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState
 				result.success = false;
 				result.error = state.text_;
 				_moveToCartesianPoseServer.setAborted(result, state.text_);
+				break;
+			default:
+				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
+				break;
+		}
+	}
+	else if (_moveToCartesianPoseLinServer.isActive()) {
+		iiwa_msgs::MoveToCartesianPoseResult result;
+
+		switch (state.state_) {
+			case actionlib::SimpleClientGoalState::SUCCEEDED:
+				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
+					result.success = false;
+					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
+				}
+				else {
+					result.success = true;
+				}
+
+				_moveToCartesianPoseLinServer.setSucceeded(result, state.text_);
+				break;
+			case actionlib::SimpleClientGoalState::PREEMPTED:
+				result.success = false;
+				result.error = state.text_;
+				_moveToCartesianPoseLinServer.setPreempted(result, state.text_);
+				break;
+			case actionlib::SimpleClientGoalState::ABORTED:
+			case actionlib::SimpleClientGoalState::LOST:
+			case actionlib::SimpleClientGoalState::RECALLED:
+				result.success = false;
+				result.error = state.text_;
+				_moveToCartesianPoseLinServer.setAborted(result, state.text_);
 				break;
 			default:
 				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
