@@ -35,14 +35,16 @@
 #include <actionlib/server/simple_action_server.h>
 #include <ros/ros.h>
 #include <tf/transform_listener.h>
+#include <moveit_msgs/MoveGroupAction.h>
 
 #include <iiwa_msgs/MoveAlongSplineAction.h>
 #include <iiwa_msgs/MoveToCartesianPoseAction.h>
 #include <iiwa_msgs/MoveToJointPositionAction.h>
 
-#include <moveit_msgs/MoveGroupAction.h>
+#include <iiwa_sim/joint_state_listener.h>
 
 namespace iiwa_sim {
+
 	/**
 	 * The iiwa SimNode provides wrappers for MoveIt! actions to offer the same interfaces as the PTP action commands
 	 * of the real robot when working with a simulated robot.
@@ -163,6 +165,7 @@ namespace iiwa_sim {
 		protected:
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
+			JointStateListener _jointStateListener;
 
 			// Action servers
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;

@@ -12,6 +12,7 @@ find_package(
 		actionlib
 		iiwa_msgs
 		moveit_msgs
+		sensor_msgs
 		tf
 )
 
@@ -138,6 +139,7 @@ include_directories(
 add_executable(
 	${PROJECT_NAME}_node
 		src/iiwa_sim_node.cpp
+		src/joint_state_listener.cpp
 		src/main.cpp
 )
 

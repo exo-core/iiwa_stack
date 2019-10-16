@@ -34,6 +34,7 @@
 
 iiwa_sim::SimNode::SimNode() :
 	_tfListener(_nh),
+	_jointStateListener(_nh),
 	_moveToJointPositionServer(_nh, "move_to_joint_position", false),
 	_moveToCartesianPoseServer(_nh, "move_to_cartesian_pose", false),
 	_moveToCartesianPoseLinServer(_nh, "move_to_cartesian_pose_lin", false),
@@ -364,6 +365,18 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 		constraints.position_constraints.push_back(getPositionConstraint(pose));
 		constraints.orientation_constraints.push_back(getOrientationConstraint(pose));
 		moveitGoal.request.trajectory_constraints.constraints.push_back(constraints);
+	}
+
+	if (goal->cartesian_pose.redundancy.status != -1 || goal->cartesian_pose.redundancy.turn != -1) {
+		const double startJointPosition = _jointStateListener.getJointState("iiwa_joint_3").position;
+		const double targetJointPosition = goal->cartesian_pose.redundancy.e1;
+
+		const double step = 1.0/(double)moveitGoal.request.trajectory_constraints.constraints.size();
+		for (unsigned int i=0; i<moveitGoal.request.trajectory_constraints.constraints.size(); i++) {
+			const double interpolatedJointPosition = (1.0-step*(i+1))*startJointPosition + step*(i+1)*targetJointPosition;
+			moveit_msgs::JointConstraint jointConstraint = getJointConstraint("iiwa_joint_3", interpolatedJointPosition);
+			moveitGoal.request.trajectory_constraints.constraints[i].joint_constraints.push_back(jointConstraint);
+		}
 	}
 
 	return moveitGoal;
