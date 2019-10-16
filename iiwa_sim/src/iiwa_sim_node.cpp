@@ -38,6 +38,7 @@ iiwa_sim::SimNode::SimNode() :
 	_moveToJointPositionServer(_nh, "move_to_joint_position", false),
 	_moveToCartesianPoseServer(_nh, "move_to_cartesian_pose", false),
 	_moveToCartesianPoseLinServer(_nh, "move_to_cartesian_pose_lin", false),
+	_moveAlongSplineServer(_nh, "move_along_spline", false),
 	_moveGroupClient("move_group", true) {
 
 	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
@@ -46,7 +47,7 @@ iiwa_sim::SimNode::SimNode() :
 	_maxVelocityScalingFactor = _nh.param<double>("max_velocity_scaling_factor", _maxVelocityScalingFactor);
 	_maxAccelerationScalingFactor = _nh.param<double>("max_acceleration_scaling_factor", _maxAccelerationScalingFactor);
 
-	ROS_INFO("[iiwa_sim] Waiting for action clients...");
+	ROS_INFO("[iiwa_sim] Waiting for move_group action client...");
 
 	_moveGroupClient.waitForServer();
 
@@ -63,6 +64,10 @@ iiwa_sim::SimNode::SimNode() :
 	_moveToCartesianPoseLinServer.registerGoalCallback(boost::bind(&SimNode::moveToCartesianPoseLinGoalCB, this));
 	//_moveToCartesianPoseLinServer.registerPreemptCallback(boost::bind(&SimNode::moveToCartesianPoseLinPreemptCB, this));
 	_moveToCartesianPoseLinServer.start();
+
+	_moveAlongSplineServer.registerGoalCallback(boost::bind(&SimNode::moveAlongSplineGoalCB, this));
+	//_moveAlongSplineServer.registerPreemptCallback(boost::bind(&SimNode::moveAlongSplinePreemptCB, this));
+	_moveAlongSplineServer.start();
 
 	ROS_INFO("[iiwa_sim] Ready.");
 }
@@ -217,7 +222,126 @@ void iiwa_sim::SimNode::moveToCartesianPoseLinGoalCB() {
 	startPose.pose.orientation.y = startTransform.getRotation().y();
 	startPose.pose.orientation.z = startTransform.getRotation().z();
 
-	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal, startPose);
+	moveit_msgs::MoveGroupGoal moveitGoal = toCartesianMoveGroupGoal(goal, startPose);
+
+	_moveGroupClient.sendGoal(
+			moveitGoal,
+			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
+			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
+	);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
+	cancelCurrentGoal();
+
+	iiwa_msgs::MoveAlongSplineGoal::ConstPtr goal = _moveAlongSplineServer.acceptNewGoal();
+
+	const std::vector<iiwa_msgs::SplineSegment>& splineSegments = goal->spline.segments;
+	if (splineSegments.size() == 0) {
+		iiwa_msgs::MoveAlongSplineResult result;
+		result.error = "Spline has no segments.";
+		result.success = false;
+		ROS_ERROR(result.error.c_str());
+		_moveAlongSplineServer.setSucceeded(result, result.error);
+		return;
+	}
+
+	std::string baseFrame = "iiwa_link_0";
+	std_msgs::Header header;
+	header.frame_id = baseFrame;
+	header.stamp = ros::Time::now();
+	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
+
+	// Get current position of end effector
+	if (!_tfListener.waitForTransform(_eeFrame, baseFrame, header.stamp, ros::Duration(1.0))) {
+		iiwa_msgs::MoveAlongSplineResult result;
+		result.error = "No transformation found from " + baseFrame + " to " + _eeFrame;
+		result.success = false;
+		ROS_ERROR(result.error.c_str());
+		_moveAlongSplineServer.setSucceeded(result, result.error);
+		return;
+	}
+
+	tf::StampedTransform startTransform;
+
+	try {
+		_tfListener.lookupTransform(_eeFrame, baseFrame, header.stamp, startTransform);
+	}
+	catch (tf::TransformException ex) {
+		iiwa_msgs::MoveAlongSplineResult result;
+		result.error = "tf::TransformException: " + std::string(ex.what());
+		result.success = false;
+		ROS_ERROR(result.error.c_str());
+		_moveAlongSplineServer.setSucceeded(result, result.error);
+		return;
+	}
+
+	geometry_msgs::PoseStamped startPoseMsg;
+	startPoseMsg.header = header;
+	startPoseMsg.pose.position.x = startTransform.getOrigin().x();
+	startPoseMsg.pose.position.y = startTransform.getOrigin().y();
+	startPoseMsg.pose.position.z = startTransform.getOrigin().z();
+	startPoseMsg.pose.orientation.w = startTransform.getRotation().w();
+	startPoseMsg.pose.orientation.x = startTransform.getRotation().x();
+	startPoseMsg.pose.orientation.y = startTransform.getRotation().y();
+	startPoseMsg.pose.orientation.z = startTransform.getRotation().z();
+
+	double startRedundancyAngle = _jointStateListener.getJointState("iiwa_joint_3").position;
+
+	for (const iiwa_msgs::SplineSegment& segment : splineSegments) {
+		tf::Stamped<tf::Pose> rawTargetPose, targetPose;
+		tf::poseStampedMsgToTF(segment.point.poseStamped, rawTargetPose);
+		_tfListener.transformPose(header.frame_id, rawTargetPose, targetPose);
+		geometry_msgs::PoseStamped targetPoseMsg;
+		tf::poseStampedTFToMsg(targetPose, targetPoseMsg);
+
+		double targetRedundancyAngle = startRedundancyAngle;
+		if (segment.point.redundancy.turn != -1 || segment.point.redundancy.turn != -1) {
+			targetRedundancyAngle = segment.point.redundancy.e1;
+		}
+
+		std::vector<moveit_msgs::Constraints> segmentConstraints;
+
+		switch (segment.type) {
+			case iiwa_msgs::SplineSegment::LIN:
+				segmentConstraints = getLinearMotionSegmentConstraints(
+						header,
+						startPoseMsg.pose,
+						targetPoseMsg.pose,
+						startRedundancyAngle,
+						targetRedundancyAngle
+				);
+				break;
+			case iiwa_msgs::SplineSegment::SPL:
+				ROS_WARN_THROTTLE(1.0, "iiwa_sim does not support SPL motion segments. Using results of MoveIt! motion planner instead");
+				break;
+			case iiwa_msgs::SplineSegment::CIRC:
+				ROS_WARN_THROTTLE(1.0, "iiwa_sim does not support CIRC motion segments. Using results of MoveIt! motion planner instead");
+				break;
+			default:
+				iiwa_msgs::MoveAlongSplineResult result;
+				result.error = "Invalid spline segment type: "+std::to_string(segment.type);
+				result.success = false;
+				ROS_ERROR(result.error.c_str());
+				_moveAlongSplineServer.setSucceeded(result, result.error);
+				return;
+		}
+
+		// append segment constraints
+		moveitGoal.request.trajectory_constraints.constraints.insert(moveitGoal.request.trajectory_constraints.constraints.end(), segmentConstraints.begin(), segmentConstraints.end());
+
+		startRedundancyAngle = targetRedundancyAngle;
+		startPoseMsg = targetPoseMsg;
+	}
+
+	moveit_msgs::Constraints goalConstraints;
+	goalConstraints.position_constraints.push_back(getPositionConstraint(startPoseMsg));
+	goalConstraints.orientation_constraints.push_back(getOrientationConstraint(startPoseMsg));
+	goalConstraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", startRedundancyAngle));
+	moveitGoal.request.goal_constraints.push_back(goalConstraints);
 
 	_moveGroupClient.sendGoal(
 			moveitGoal,
@@ -352,34 +476,61 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose) {
+moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toCartesianMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose) {
 	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
 
-	std::vector<geometry_msgs::Pose> waypoints = interpolateLinear(startPose.pose, goal->cartesian_pose.poseStamped.pose, _stepSize);
-	geometry_msgs::PoseStamped pose;
-	pose.header = goal->cartesian_pose.poseStamped.header;
-
-	for (const geometry_msgs::Pose& waypoint : waypoints) {
-		pose.pose = waypoint;
-		moveit_msgs::Constraints constraints;
-		constraints.position_constraints.push_back(getPositionConstraint(pose));
-		constraints.orientation_constraints.push_back(getOrientationConstraint(pose));
-		moveitGoal.request.trajectory_constraints.constraints.push_back(constraints);
+	if (goal->cartesian_pose.redundancy.status == -1 && goal->cartesian_pose.redundancy.turn == -1) {
+		moveitGoal.request.trajectory_constraints.constraints = getLinearMotionSegmentConstraints(
+				goal->cartesian_pose.poseStamped.header,
+				startPose.pose,
+				goal->cartesian_pose.poseStamped.pose
+		);
 	}
-
-	if (goal->cartesian_pose.redundancy.status != -1 || goal->cartesian_pose.redundancy.turn != -1) {
-		const double startJointPosition = _jointStateListener.getJointState("iiwa_joint_3").position;
-		const double targetJointPosition = goal->cartesian_pose.redundancy.e1;
-
-		const double step = 1.0/(double)moveitGoal.request.trajectory_constraints.constraints.size();
-		for (unsigned int i=0; i<moveitGoal.request.trajectory_constraints.constraints.size(); i++) {
-			const double interpolatedJointPosition = (1.0-step*(i+1))*startJointPosition + step*(i+1)*targetJointPosition;
-			moveit_msgs::JointConstraint jointConstraint = getJointConstraint("iiwa_joint_3", interpolatedJointPosition);
-			moveitGoal.request.trajectory_constraints.constraints[i].joint_constraints.push_back(jointConstraint);
-		}
+	else {
+		moveitGoal.request.trajectory_constraints.constraints = getLinearMotionSegmentConstraints(
+				goal->cartesian_pose.poseStamped.header,
+				startPose.pose,
+				goal->cartesian_pose.poseStamped.pose,
+				_jointStateListener.getJointState("iiwa_joint_3").position,
+				goal->cartesian_pose.redundancy.e1
+		);
 	}
 
 	return moveitGoal;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+std::vector<moveit_msgs::Constraints> iiwa_sim::SimNode::getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2) const {
+	std::vector<moveit_msgs::Constraints> constraints;
+	std::vector<geometry_msgs::Pose> waypoints = interpolateLinear(p1, p2, _stepSize);
+	geometry_msgs::PoseStamped pose;
+	pose.header = header;
+
+	for (const geometry_msgs::Pose& waypoint : waypoints) {
+		pose.pose = waypoint;
+		moveit_msgs::Constraints waypointConstraints;
+		waypointConstraints.position_constraints.push_back(getPositionConstraint(pose));
+		waypointConstraints.orientation_constraints.push_back(getOrientationConstraint(pose));
+		constraints.push_back(waypointConstraints);
+	}
+
+	return constraints;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+std::vector<moveit_msgs::Constraints> iiwa_sim::SimNode::getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double j1, const double j2) const {
+	std::vector<moveit_msgs::Constraints> constraints = getLinearMotionSegmentConstraints(header, p1, p2);
+
+	const double step = 1.0/(double)constraints.size();
+	for (unsigned int i=0; i<constraints.size(); i++) {
+		const double interpolatedJointPosition = (1.0-step*(i+1))*j1 + step*(i+1)*j2;
+		moveit_msgs::JointConstraint jointConstraint = getJointConstraint("iiwa_joint_3", interpolatedJointPosition);
+		constraints[i].joint_constraints.push_back(jointConstraint);
+	}
+
+	return constraints;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -477,6 +628,38 @@ void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState
 				result.success = false;
 				result.error = state.text_;
 				_moveToCartesianPoseLinServer.setAborted(result, state.text_);
+				break;
+			default:
+				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
+				break;
+		}
+	}
+	else if (_moveAlongSplineServer.isActive()) {
+		iiwa_msgs::MoveAlongSplineResult result;
+
+		switch (state.state_) {
+			case actionlib::SimpleClientGoalState::SUCCEEDED:
+				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
+					result.success = false;
+					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
+				}
+				else {
+					result.success = true;
+				}
+
+				_moveAlongSplineServer.setSucceeded(result, state.text_);
+				break;
+			case actionlib::SimpleClientGoalState::PREEMPTED:
+				result.success = false;
+				result.error = state.text_;
+				_moveAlongSplineServer.setPreempted(result, state.text_);
+				break;
+			case actionlib::SimpleClientGoalState::ABORTED:
+			case actionlib::SimpleClientGoalState::LOST:
+			case actionlib::SimpleClientGoalState::RECALLED:
+				result.success = false;
+				result.error = state.text_;
+				_moveAlongSplineServer.setAborted(result, state.text_);
 				break;
 			default:
 				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");

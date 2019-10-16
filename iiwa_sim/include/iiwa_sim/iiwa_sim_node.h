@@ -109,6 +109,11 @@ namespace iiwa_sim {
 			void moveToCartesianPoseLinGoalCB();
 
 			/**
+			 * Goal callback for move_along_spline action
+			 */
+			void moveAlongSplineGoalCB();
+
+			/**
 			 * Goal reached callback for MoveIt!'s move_group action
 			 * @param state
 			 * @param result
@@ -135,7 +140,7 @@ namespace iiwa_sim {
 			 * @param startPose: Current pose of the end effector
 			 * @return
 			 */
-			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose);
+			moveit_msgs::MoveGroupGoal toCartesianMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose);
 
 			/**
 			 * Initializes a goal for a move_group action without goal or trajectory constraints
@@ -162,6 +167,26 @@ namespace iiwa_sim {
 			 */
 			static std::vector<geometry_msgs::Pose> interpolateLinear(const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double stepSize);
 
+			/**
+			 * Creates a list of waypoint constraint for a motion along a Cartesian line
+			 * @param header: Header to be used for creating stamped poses
+			 * @param p1: start pose
+			 * @param p2: target pose
+			 * @return
+			 */
+			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2) const;
+
+			/**
+			 * Creates a list of waypoint constraint for a motion along a Cartesian line with redundancy parameters
+			 * @param header: Header to be used for creating stamped poses
+			 * @param p1: start pose
+			 * @param p2: target pose
+			 * @param j1: start value for iiwa_joint_3
+			 * @param j2: target value for iiwa_joint_3
+			 * @return
+			 */
+			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double j1, const double j2) const;
+
 		protected:
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
@@ -171,6 +196,7 @@ namespace iiwa_sim {
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToCartesianPoseAction> _moveToCartesianPoseServer;
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToCartesianPoseAction> _moveToCartesianPoseLinServer;
+			actionlib::SimpleActionServer<iiwa_msgs::MoveAlongSplineAction> _moveAlongSplineServer;
 
 			// Action client
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction> _moveGroupClient;
