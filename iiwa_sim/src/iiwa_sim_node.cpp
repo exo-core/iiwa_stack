@@ -69,6 +69,13 @@ iiwa_sim::SimNode::SimNode() :
 	//_moveAlongSplineServer.registerPreemptCallback(boost::bind(&SimNode::moveAlongSplinePreemptCB, this));
 	_moveAlongSplineServer.start();
 
+	ROS_INFO("[iiwa_sim] Starting service servers...");
+
+	_setPTPJointLimitsServiceServer = _nh.advertiseService("configuration/setPTPJointLimits", &SimNode::setPTPJointLimitsServiceCB, this);
+	_setPTPCartesianLimitsServiceServer = _nh.advertiseService("configuration/setPTPCartesianLimits", &SimNode::setPTPCartesianLimitsServiceCB, this);
+	_setEndpointFrameServiceServer = _nh.advertiseService("configuration/setEndpointFrame", &SimNode::setEndpointFrameServiceCB, this);
+	_setWorkpieceServiceServer = _nh.advertiseService("configuration/setWorkpiece", &SimNode::setWorkpieceServiceCB, this);
+
 	ROS_INFO("[iiwa_sim] Ready.");
 }
 
@@ -350,6 +357,38 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
 	);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+bool iiwa_sim::SimNode::setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response) {
+	response.error = "Speed limits are not available in simulation!";
+	response.success = true;
+	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+bool iiwa_sim::SimNode::setPTPCartesianLimitsServiceCB(iiwa_msgs::SetPTPCartesianSpeedLimits::Request& request, iiwa_msgs::SetPTPCartesianSpeedLimits::Response& response) {
+	response.error = "Speed limits are not available in simulation!";
+	response.success = true;
+	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+bool iiwa_sim::SimNode::setEndpointFrameServiceCB(iiwa_msgs::SetEndpointFrame::Request& request, iiwa_msgs::SetEndpointFrame::Response& response) {
+	_eeFrame = request.frame_id;
+	response.success = true;
+	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+bool iiwa_sim::SimNode::setWorkpieceServiceCB(iiwa_msgs::SetWorkpiece::Request& request, iiwa_msgs::SetWorkpiece::Response& response) {
+	response.success = true;
+	return true;
+}
+
 
 // ---------------------------------------------------------------------------------------------------------------------
 
