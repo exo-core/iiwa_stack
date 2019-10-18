@@ -127,9 +127,36 @@ namespace iiwa_sim {
 			 */
 			void moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& result);
 
+			/**
+			 * Callback for configuration/setPTPJointLimits service
+			 * @param request
+			 * @param response
+			 * @return
+			 */
 			bool setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response);
+
+			/**
+			 * Callback for configuration/setPTPCartesianLimits service
+			 * @param request
+			 * @param response
+			 * @return
+			 */
 			bool setPTPCartesianLimitsServiceCB(iiwa_msgs::SetPTPCartesianSpeedLimits::Request& request, iiwa_msgs::SetPTPCartesianSpeedLimits::Response& response);
+
+			/**
+			 * Callback for configuration/setEndpointFrame service
+			 * @param request
+			 * @param response
+			 * @return
+			 */
 			bool setEndpointFrameServiceCB(iiwa_msgs::SetEndpointFrame::Request& request, iiwa_msgs::SetEndpointFrame::Response& response);
+
+			/**
+			 * Callback for configuration/setWorkpiece service
+			 * @param request
+			 * @param response
+			 * @return
+			 */
 			bool setWorkpieceServiceCB(iiwa_msgs::SetWorkpiece::Request& request, iiwa_msgs::SetWorkpiece::Response& response);
 
 			/**
