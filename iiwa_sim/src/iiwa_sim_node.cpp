@@ -35,10 +35,10 @@
 iiwa_sim::SimNode::SimNode() :
 	_tfListener(_nh),
 	_jointStateListener(_nh),
-	_moveToJointPositionServer(_nh, "move_to_joint_position", false),
-	_moveToCartesianPoseServer(_nh, "move_to_cartesian_pose", false),
-	_moveToCartesianPoseLinServer(_nh, "move_to_cartesian_pose_lin", false),
-	_moveAlongSplineServer(_nh, "move_along_spline", false),
+	_moveToJointPositionServer(_nh, "action/move_to_joint_position", false),
+	_moveToCartesianPoseServer(_nh, "action/move_to_cartesian_pose", false),
+	_moveToCartesianPoseLinServer(_nh, "action/move_to_cartesian_pose_lin", false),
+	_moveAlongSplineServer(_nh, "action/move_along_spline", false),
 	_moveGroupClient("move_group", true) {
 
 	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
@@ -92,12 +92,12 @@ void iiwa_sim::SimNode::spin() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-moveit_msgs::JointConstraint iiwa_sim::SimNode::getJointConstraint(const std::string& jointName, const double angle) const{
+moveit_msgs::JointConstraint iiwa_sim::SimNode::getJointConstraint(const std::string& jointName, const double angle, const double tolerance) const{
 	moveit_msgs::JointConstraint jointConstraint;
 	jointConstraint.joint_name = jointName;
 	jointConstraint.position = angle;
-	jointConstraint.tolerance_above = 0.0001;
-	jointConstraint.tolerance_below = 0.0001;
+	jointConstraint.tolerance_above = tolerance;
+	jointConstraint.tolerance_below = tolerance;
 	jointConstraint.weight = 1.0;
 	return jointConstraint;
 }
@@ -324,9 +324,11 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 				break;
 			case iiwa_msgs::SplineSegment::SPL:
 				ROS_WARN_THROTTLE(1.0, "iiwa_sim does not support SPL motion segments. Using results of MoveIt! motion planner instead");
+				segmentConstraints.push_back(getSplineMotionSegmentConstraints(targetPoseMsg, targetRedundancyAngle));
 				break;
 			case iiwa_msgs::SplineSegment::CIRC:
 				ROS_WARN_THROTTLE(1.0, "iiwa_sim does not support CIRC motion segments. Using results of MoveIt! motion planner instead");
+				segmentConstraints.push_back(getSplineMotionSegmentConstraints(targetPoseMsg, targetRedundancyAngle));
 				break;
 			default:
 				iiwa_msgs::MoveAlongSplineResult result;
@@ -347,7 +349,7 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 	moveit_msgs::Constraints goalConstraints;
 	goalConstraints.position_constraints.push_back(getPositionConstraint(startPoseMsg));
 	goalConstraints.orientation_constraints.push_back(getOrientationConstraint(startPoseMsg));
-	goalConstraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", startRedundancyAngle));
+	goalConstraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", startRedundancyAngle, _redundancyAngleTolerance));
 	moveitGoal.request.goal_constraints.push_back(goalConstraints);
 
 	_moveGroupClient.sendGoal(
@@ -411,6 +413,7 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::getBlankMoveItGoal(const std_msgs:
 	moveitGoal.request.allowed_planning_time = _allowedPlanningTime;
 	moveitGoal.request.max_velocity_scaling_factor = _maxVelocityScalingFactor;
 	moveitGoal.request.max_acceleration_scaling_factor = _maxAccelerationScalingFactor;
+	moveitGoal.request.planner_id = _planner;
 
 	moveitGoal.planning_options.planning_scene_diff.robot_state.joint_state.header = header;
 	moveitGoal.planning_options.planning_scene_diff.robot_state.multi_dof_joint_state.header = header;
@@ -478,13 +481,13 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
 
 	moveit_msgs::Constraints constraints;
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_1", goal->joint_position.position.a1));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_2", goal->joint_position.position.a2));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->joint_position.position.a3));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_4", goal->joint_position.position.a4));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_5", goal->joint_position.position.a5));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_6", goal->joint_position.position.a6));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_7", goal->joint_position.position.a7));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_1", goal->joint_position.position.a1, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_2", goal->joint_position.position.a2, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->joint_position.position.a3, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_4", goal->joint_position.position.a4, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_5", goal->joint_position.position.a5, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_6", goal->joint_position.position.a6, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_7", goal->joint_position.position.a7, _jointGoalAngleTolerance));
 	moveitGoal.request.goal_constraints.push_back(constraints);
 
 	return moveitGoal;
@@ -503,7 +506,7 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 	constraints.orientation_constraints.push_back(getOrientationConstraint(goal->cartesian_pose.poseStamped));
 
 	if (goal->cartesian_pose.redundancy.status != -1 || goal->cartesian_pose.redundancy.turn != -1) {
-		constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->cartesian_pose.redundancy.e1));
+		constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->cartesian_pose.redundancy.e1, _redundancyAngleTolerance));
 	}
 
 	moveitGoal.request.goal_constraints.push_back(constraints);
@@ -565,10 +568,20 @@ std::vector<moveit_msgs::Constraints> iiwa_sim::SimNode::getLinearMotionSegmentC
 	const double step = 1.0/(double)constraints.size();
 	for (unsigned int i=0; i<constraints.size(); i++) {
 		const double interpolatedJointPosition = (1.0-step*(i+1))*j1 + step*(i+1)*j2;
-		moveit_msgs::JointConstraint jointConstraint = getJointConstraint("iiwa_joint_3", interpolatedJointPosition);
+		moveit_msgs::JointConstraint jointConstraint = getJointConstraint("iiwa_joint_3", interpolatedJointPosition, _redundancyAngleTolerance);
 		constraints[i].joint_constraints.push_back(jointConstraint);
 	}
 
+	return constraints;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+moveit_msgs::Constraints iiwa_sim::SimNode::getSplineMotionSegmentConstraints(const geometry_msgs::PoseStamped& p, const double j) const {
+	moveit_msgs::Constraints constraints;
+	constraints.position_constraints.push_back(getPositionConstraint(p));
+	constraints.orientation_constraints.push_back(getOrientationConstraint(p));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", j, _redundancyAngleTolerance));
 	return constraints;
 }
 

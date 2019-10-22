@@ -82,9 +82,10 @@ namespace iiwa_sim {
 			 * Create a MoveIt! constraint message for a specific axis
 			 * @param jointName
 			 * @param angle
+			 * @param tolerance
 			 * @return
 			 */
-			moveit_msgs::JointConstraint getJointConstraint(const std::string& jointName, const double angle) const;
+			moveit_msgs::JointConstraint getJointConstraint(const std::string& jointName, const double angle, const double tolerance) const;
 
 			/**
 			 * Create a MoveIt! constraint message for a specific target position
@@ -226,6 +227,8 @@ namespace iiwa_sim {
 			 */
 			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double j1, const double j2) const;
 
+			moveit_msgs::Constraints getSplineMotionSegmentConstraints(const geometry_msgs::PoseStamped& p, const double j) const;
+
 		protected:
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
@@ -248,11 +251,14 @@ namespace iiwa_sim {
 			ros::ServiceServer _setWorkpieceServiceServer;
 
 			// MoveIt! parameters
-			std::string _moveGroup = "iiwa";
+			std::string _moveGroup = "manipulator";
 			int _numPlanningAttempts = 10;
 			int _allowedPlanningTime = 5.0;
 			int _maxVelocityScalingFactor = 1.0;
 			int _maxAccelerationScalingFactor = 1.0;
+			double _redundancyAngleTolerance = 0.05;
+			double _jointGoalAngleTolerance = 0.0017;
+			std::string _planner = "RRTStar";
 
 			// Other parameters
 			std::string _eeFrame = "iiwa_link_ee";
