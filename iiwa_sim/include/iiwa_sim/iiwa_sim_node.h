@@ -257,7 +257,7 @@ namespace iiwa_sim {
 			int _maxVelocityScalingFactor = 1.0;
 			int _maxAccelerationScalingFactor = 1.0;
 			double _redundancyAngleTolerance = 0.05;
-			double _jointGoalAngleTolerance = 0.0017;
+			double _jointGoalAngleTolerance = 0.005;
 			std::string _planner = "RRTStar";
 
 			// Other parameters
