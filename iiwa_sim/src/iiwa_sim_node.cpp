@@ -40,12 +40,17 @@ iiwa_sim::SimNode::SimNode() :
 	_moveToCartesianPoseLinServer(_nh, "action/move_to_cartesian_pose_lin", false),
 	_moveAlongSplineServer(_nh, "action/move_along_spline", false),
 	_moveGroupClient("move_group", true) {
+	_jointNames = {"iiwa_joint_1", "iiwa_joint_2", "iiwa_joint_3", "iiwa_joint_4", "iiwa_joint_5", "iiwa_joint_6", "iiwa_joint_7"};
 
 	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
 	_numPlanningAttempts = _nh.param<double>("num_planning_attempts", _numPlanningAttempts);
 	_allowedPlanningTime = _nh.param<double>("allowed_planning_time", _allowedPlanningTime);
 	_maxVelocityScalingFactor = _nh.param<double>("max_velocity_scaling_factor", _maxVelocityScalingFactor);
 	_maxAccelerationScalingFactor = _nh.param<double>("max_acceleration_scaling_factor", _maxAccelerationScalingFactor);
+
+	_jointPositionPub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointPosition", 1);
+	_jointVelocityPub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointVelocity", 1);
+	_jointTorquePub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointTorque", 1);
 
 	ROS_INFO("[iiwa_sim] Waiting for move_group action client...");
 
@@ -87,7 +92,60 @@ iiwa_sim::SimNode::~SimNode() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNode::spin() {
-	ros::spin();
+	ros::Rate rate(100);
+	while(ros::ok()) {
+		ros::spinOnce();
+		publishLatestRobotState();
+		rate.sleep();
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+void iiwa_sim::SimNode::publishLatestRobotState() {
+	JointState jointState1 = _jointStateListener.getJointState(_jointNames[0]);
+
+	if (jointState1.header.stamp > _jointPositionMsg.header.stamp) {
+		_jointPositionMsg.header = jointState1.header;
+
+		_jointPositionMsg.position.a1 = jointState1.position;
+		_jointVelocityMsg.velocity.a1 = jointState1.velocity;
+		_jointTorqueMsg.torque.a1 = jointState1.effort;
+
+		JointState jointState2 = _jointStateListener.getJointState(_jointNames[1], jointState1.header.stamp);
+		_jointPositionMsg.position.a2 = jointState2.position;
+		_jointVelocityMsg.velocity.a2 = jointState2.velocity;
+		_jointTorqueMsg.torque.a2 = jointState2.effort;
+
+		JointState jointState3 = _jointStateListener.getJointState(_jointNames[2], jointState1.header.stamp);
+		_jointPositionMsg.position.a3 = jointState3.position;
+		_jointVelocityMsg.velocity.a3 = jointState3.velocity;
+		_jointTorqueMsg.torque.a3 = jointState3.effort;
+
+		JointState jointState4 = _jointStateListener.getJointState(_jointNames[3], jointState1.header.stamp);
+		_jointPositionMsg.position.a4 = jointState4.position;
+		_jointVelocityMsg.velocity.a4 = jointState4.velocity;
+		_jointTorqueMsg.torque.a4 = jointState4.effort;
+
+		JointState jointState5 = _jointStateListener.getJointState(_jointNames[4], jointState1.header.stamp);
+		_jointPositionMsg.position.a5 = jointState5.position;
+		_jointVelocityMsg.velocity.a5 = jointState5.velocity;
+		_jointTorqueMsg.torque.a5 = jointState5.effort;
+
+		JointState jointState6 = _jointStateListener.getJointState(_jointNames[5], jointState1.header.stamp);
+		_jointPositionMsg.position.a6 = jointState6.position;
+		_jointVelocityMsg.velocity.a6 = jointState6.velocity;
+		_jointTorqueMsg.torque.a6 = jointState6.effort;
+
+		JointState jointState7 = _jointStateListener.getJointState(_jointNames[6], jointState1.header.stamp);
+		_jointPositionMsg.position.a7 = jointState7.position;
+		_jointVelocityMsg.velocity.a7 = jointState7.velocity;
+		_jointTorqueMsg.torque.a7 = jointState7.effort;
+
+		_jointPositionPub.publish(_jointPositionMsg);
+		_jointVelocityPub.publish(_jointVelocityMsg);
+		_jointTorquePub.publish(_jointTorqueMsg);
+	}
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -37,6 +37,9 @@
 #include <tf/transform_listener.h>
 #include <moveit_msgs/MoveGroupAction.h>
 
+#include <iiwa_msgs/JointPosition.h>
+#include <iiwa_msgs/JointVelocity.h>
+#include <iiwa_msgs/JointTorque.h>
 #include <iiwa_msgs/MoveAlongSplineAction.h>
 #include <iiwa_msgs/MoveToCartesianPoseAction.h>
 #include <iiwa_msgs/MoveToJointPositionAction.h>
@@ -72,6 +75,11 @@ namespace iiwa_sim {
 			 * The nodes idle spin loop
 			 */
 			void spin();
+
+			/**
+			 * Publishes the latest known joint position
+			 */
+			void publishLatestRobotState();
 
 			/**
 			 * Stops the current goal, if any.
@@ -227,12 +235,23 @@ namespace iiwa_sim {
 			 */
 			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double j1, const double j2) const;
 
+			/**
+			 *
+			 * @param p
+			 * @param j
+			 * @return
+			 */
 			moveit_msgs::Constraints getSplineMotionSegmentConstraints(const geometry_msgs::PoseStamped& p, const double j) const;
 
 		protected:
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
 			JointStateListener _jointStateListener;
+
+			// Publishers
+			ros::Publisher _jointPositionPub;
+			ros::Publisher _jointVelocityPub;
+			ros::Publisher _jointTorquePub;
 
 			// Action servers
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;
@@ -261,8 +280,14 @@ namespace iiwa_sim {
 			std::string _planner = "RRTStar";
 
 			// Other parameters
+			std::vector<std::string> _jointNames;
 			std::string _eeFrame = "iiwa_link_ee";
 			double _stepSize = 0.001;
+
+			// Buffers
+			iiwa_msgs::JointPosition _jointPositionMsg;
+			iiwa_msgs::JointVelocity _jointVelocityMsg;
+			iiwa_msgs::JointTorque _jointTorqueMsg;
 	};
 }
 
