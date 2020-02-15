@@ -6,7 +6,7 @@
         <param name="move_group" type="string" value="$(arg robot_name)" />
         <param name="num_planning_attempts" type="double" value="10" />
         <param name="allowed_planning_time" type="double" value="5.0" />
-        <param name="max_velocity_scaling_factor" type="double" value="0.5" />
+        <param name="max_velocity_scaling_factor" type="double" value="0.1" />
         <param name="max_acceleration_scaling_factor" type="double" value="0.5" />
 
         <node name="iiwa_sim" pkg="iiwa_sim" type="iiwa_sim_node" output="screen" />

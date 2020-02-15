@@ -421,8 +421,12 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 bool iiwa_sim::SimNode::setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response) {
+	_maxAccelerationScalingFactor = request.joint_relative_acceleration;
+	_maxVelocityScalingFactor = request.joint_relative_velocity;
+
 	response.error = "Speed limits are not available in simulation!";
 	response.success = true;
+
 	return true;
 }
 

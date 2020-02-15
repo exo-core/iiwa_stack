@@ -272,9 +272,9 @@ namespace iiwa_sim {
 			// MoveIt! parameters
 			std::string _moveGroup = "manipulator";
 			int _numPlanningAttempts = 10;
-			int _allowedPlanningTime = 5.0;
-			int _maxVelocityScalingFactor = 1.0;
-			int _maxAccelerationScalingFactor = 1.0;
+			double _allowedPlanningTime = 5.0;
+			double _maxVelocityScalingFactor = 1.0;
+			double _maxAccelerationScalingFactor = 1.0;
 			double _redundancyAngleTolerance = 0.05;
 			double _jointGoalAngleTolerance = 0.005;
 			std::string _planner = "RRTStar";
