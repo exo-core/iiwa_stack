@@ -77,7 +77,7 @@ namespace iiwa_sim {
 			void spin();
 
 			/**
-			 * Publishes the latest known joint position
+			 * Publishes the latest known robot state
 			 */
 			void publishLatestRobotState();
 
@@ -244,6 +244,11 @@ namespace iiwa_sim {
 			moveit_msgs::Constraints getSplineMotionSegmentConstraints(const geometry_msgs::PoseStamped& p, const double j) const;
 
 		protected:
+			/**
+			 * Publishes the latest known joint position
+			 */
+			void publishCartesianPose();
+
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
 			JointStateListener _jointStateListener;
@@ -252,6 +257,7 @@ namespace iiwa_sim {
 			ros::Publisher _jointPositionPub;
 			ros::Publisher _jointVelocityPub;
 			ros::Publisher _jointTorquePub;
+			ros::Publisher _cartesianPosePub;
 
 			// Action servers
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;
@@ -281,8 +287,10 @@ namespace iiwa_sim {
 
 			// Other parameters
 			std::vector<std::string> _jointNames;
+			std::string _baseFrame = "iiwa_link_0";
 			std::string _eeFrame = "iiwa_link_ee";
 			double _stepSize = 0.001;
+			int _seq = 0;
 
 			// Buffers
 			iiwa_msgs::JointPosition _jointPositionMsg;

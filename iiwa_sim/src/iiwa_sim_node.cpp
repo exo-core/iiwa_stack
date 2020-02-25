@@ -51,6 +51,7 @@ iiwa_sim::SimNode::SimNode() :
 	_jointPositionPub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointPosition", 1);
 	_jointVelocityPub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointVelocity", 1);
 	_jointTorquePub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointTorque", 1);
+	_cartesianPosePub = _nh.advertise<iiwa_msgs::CartesianPose>("state/CartesianPose", 1);
 
 	ROS_INFO("[iiwa_sim] Waiting for move_group action client...");
 
@@ -107,6 +108,9 @@ void iiwa_sim::SimNode::publishLatestRobotState() {
 
 	if (jointState1.header.stamp > _jointPositionMsg.header.stamp) {
 		_jointPositionMsg.header = jointState1.header;
+		_jointPositionMsg.header.seq = _seq;
+		_jointVelocityMsg.header = _jointPositionMsg.header;
+		_jointTorqueMsg.header = _jointPositionMsg.header;
 
 		_jointPositionMsg.position.a1 = jointState1.position;
 		_jointVelocityMsg.velocity.a1 = jointState1.velocity;
@@ -145,6 +149,40 @@ void iiwa_sim::SimNode::publishLatestRobotState() {
 		_jointPositionPub.publish(_jointPositionMsg);
 		_jointVelocityPub.publish(_jointVelocityMsg);
 		_jointTorquePub.publish(_jointTorqueMsg);
+
+		publishCartesianPose();
+		_seq++;
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+void iiwa_sim::SimNode::publishCartesianPose() {
+	if (_cartesianPosePub.getNumSubscribers() > 0) {
+		tf::StampedTransform transform;
+		try {
+			_tfListener.lookupTransform(_baseFrame, _eeFrame, ros::Time(0), transform);
+			iiwa_msgs::CartesianPose pose;
+			pose.poseStamped.header.frame_id = transform.frame_id_;
+			pose.poseStamped.header.seq = _seq;
+			pose.poseStamped.header.stamp = transform.stamp_;
+
+			pose.poseStamped.pose.position.x = transform.getOrigin().x();
+			pose.poseStamped.pose.position.y = transform.getOrigin().y();
+			pose.poseStamped.pose.position.z = transform.getOrigin().z();
+			pose.poseStamped.pose.orientation.x = transform.getRotation().x();
+			pose.poseStamped.pose.orientation.y = transform.getRotation().y();
+			pose.poseStamped.pose.orientation.z = transform.getRotation().z();
+			pose.poseStamped.pose.orientation.w = transform.getRotation().w();
+
+			pose.redundancy.turn = -1;
+			pose.redundancy.status = -1;
+
+			_cartesianPosePub.publish(pose);
+		}
+		catch (tf::TransformException ex) {
+			ROS_WARN_STREAM_THROTTLE(3.0, "[iiwa_sim_node:" << __LINE__ << "] TF Error: " << ex.what());
+		}
 	}
 }
 
@@ -257,7 +295,7 @@ void iiwa_sim::SimNode::moveToCartesianPoseLinGoalCB() {
 		iiwa_msgs::MoveToCartesianPoseResult result;
 		result.error = "No transformation found from "+goal->cartesian_pose.poseStamped.header.frame_id+" to "+_eeFrame;
 		result.success = false;
-		ROS_ERROR(result.error.c_str());
+		ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
 		_moveToCartesianPoseLinServer.setSucceeded(result, result.error);
 		return;
 	}
@@ -314,18 +352,17 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 		return;
 	}
 
-	std::string baseFrame = "iiwa_link_0";
 	std_msgs::Header header;
-	header.frame_id = baseFrame;
+	header.frame_id = _baseFrame;
 	header.stamp = ros::Time::now();
 	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
 
 	// Get current position of end effector
-	if (!_tfListener.waitForTransform(_eeFrame, baseFrame, header.stamp, ros::Duration(1.0))) {
+	if (!_tfListener.waitForTransform(_eeFrame, _baseFrame, header.stamp, ros::Duration(1.0))) {
 		iiwa_msgs::MoveAlongSplineResult result;
-		result.error = "No transformation found from " + baseFrame + " to " + _eeFrame;
+		result.error = "No transformation found from " + _baseFrame + " to " + _eeFrame;
 		result.success = false;
-		ROS_ERROR(result.error.c_str());
+		ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
 		_moveAlongSplineServer.setSucceeded(result, result.error);
 		return;
 	}
@@ -333,13 +370,13 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 	tf::StampedTransform startTransform;
 
 	try {
-		_tfListener.lookupTransform(_eeFrame, baseFrame, header.stamp, startTransform);
+		_tfListener.lookupTransform(_eeFrame, _baseFrame, header.stamp, startTransform);
 	}
 	catch (tf::TransformException ex) {
 		iiwa_msgs::MoveAlongSplineResult result;
 		result.error = "tf::TransformException: " + std::string(ex.what());
 		result.success = false;
-		ROS_ERROR(result.error.c_str());
+		ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
 		_moveAlongSplineServer.setSucceeded(result, result.error);
 		return;
 	}
@@ -392,7 +429,7 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 				iiwa_msgs::MoveAlongSplineResult result;
 				result.error = "Invalid spline segment type: "+std::to_string(segment.type);
 				result.success = false;
-				ROS_ERROR(result.error.c_str());
+				ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
 				_moveAlongSplineServer.setSucceeded(result, result.error);
 				return;
 		}
