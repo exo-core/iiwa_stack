@@ -1,13 +1,20 @@
 <?xml version="1.0"?>
 <launch>
     <arg name="robot_name" default="iiwa" />
+    <arg name="planner" default="RRTStar" />
 
     <group ns="iiwa">
         <param name="move_group" type="string" value="$(arg robot_name)" />
+        <param name="planner" type="string" value="$(arg planner)" />
         <param name="num_planning_attempts" type="double" value="10" />
         <param name="allowed_planning_time" type="double" value="5.0" />
         <param name="max_velocity_scaling_factor" type="double" value="0.1" />
         <param name="max_acceleration_scaling_factor" type="double" value="0.5" />
+
+        <param name="redundancy_angle_tolerance" type="double" value="0.05" />
+        <param name="joint_angle_constraint_tolerance" type="double" value="0.005" />
+        <param name="position_constraint_tolerance" type="double" value="0.001" />
+        <param name="orientation_constraint_tolerance" type="double" value="0.005" />
 
         <node name="iiwa_sim" pkg="iiwa_sim" type="iiwa_sim_node" output="screen" />
     </group>

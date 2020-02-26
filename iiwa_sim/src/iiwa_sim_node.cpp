@@ -33,7 +33,7 @@
 #include <tf/transform_datatypes.h>
 
 iiwa_sim::SimNode::SimNode() :
-	_tfListener(_nh),
+	_tfListener(_nh, ros::Duration(30), true),
 	_jointStateListener(_nh),
 	_moveToJointPositionServer(_nh, "action/move_to_joint_position", false),
 	_moveToCartesianPoseServer(_nh, "action/move_to_cartesian_pose", false),
@@ -43,10 +43,16 @@ iiwa_sim::SimNode::SimNode() :
 	_jointNames = {"iiwa_joint_1", "iiwa_joint_2", "iiwa_joint_3", "iiwa_joint_4", "iiwa_joint_5", "iiwa_joint_6", "iiwa_joint_7"};
 
 	_moveGroup = _nh.param<std::string>("move_group", _moveGroup);
+	_planner = _nh.param<std::string>("planner", _planner);
 	_numPlanningAttempts = _nh.param<double>("num_planning_attempts", _numPlanningAttempts);
 	_allowedPlanningTime = _nh.param<double>("allowed_planning_time", _allowedPlanningTime);
 	_maxVelocityScalingFactor = _nh.param<double>("max_velocity_scaling_factor", _maxVelocityScalingFactor);
 	_maxAccelerationScalingFactor = _nh.param<double>("max_acceleration_scaling_factor", _maxAccelerationScalingFactor);
+
+	_redundancyAngleTolerance = _nh.param<double>("redundancy_angle_tolerance", _redundancyAngleTolerance);
+	_jointAngleConstraintTolerance = _nh.param<double>("joint_angle_constraint_tolerance", _jointAngleConstraintTolerance);
+	_positionConstraintTolerance = _nh.param<double>("position_constraint_tolerance", _positionConstraintTolerance);
+	_orientationConstraintTolerance = _nh.param<double>("orientation_constraint_tolerance", _orientationConstraintTolerance);
 
 	_jointPositionPub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointPosition", 1);
 	_jointVelocityPub = _nh.advertise<iiwa_msgs::JointPosition>("state/JointVelocity", 1);
@@ -181,7 +187,7 @@ void iiwa_sim::SimNode::publishCartesianPose() {
 			_cartesianPosePub.publish(pose);
 		}
 		catch (tf::TransformException ex) {
-			ROS_WARN_STREAM_THROTTLE(3.0, "[iiwa_sim_node:" << __LINE__ << "] TF Error: " << ex.what());
+			ROS_WARN_STREAM_THROTTLE(3.0, "[iiwa_sim:" << __LINE__ << "] TF Error: " << ex.what());
 		}
 	}
 }
@@ -211,7 +217,7 @@ moveit_msgs::PositionConstraint iiwa_sim::SimNode::getPositionConstraint(const g
 
 	shape_msgs::SolidPrimitive sphere;
 	sphere.type = shape_msgs::SolidPrimitive::SPHERE;
-	sphere.dimensions.push_back(0.001);
+	sphere.dimensions.push_back(_positionConstraintTolerance);
 
 	positionConstraint.constraint_region.primitives.push_back(sphere);
 	positionConstraint.constraint_region.primitive_poses.push_back(pose.pose);
@@ -230,9 +236,9 @@ moveit_msgs::OrientationConstraint iiwa_sim::SimNode::getOrientationConstraint(c
 
 	orientationConstraint.orientation = pose.pose.orientation;
 
-	orientationConstraint.absolute_x_axis_tolerance = 0.01;
-	orientationConstraint.absolute_y_axis_tolerance = 0.01;
-	orientationConstraint.absolute_z_axis_tolerance = 0.01;
+	orientationConstraint.absolute_x_axis_tolerance = _orientationConstraintTolerance;
+	orientationConstraint.absolute_y_axis_tolerance = _orientationConstraintTolerance;
+	orientationConstraint.absolute_z_axis_tolerance = _orientationConstraintTolerance;
 
 	orientationConstraint.weight = 1.0;
 
@@ -257,10 +263,11 @@ void iiwa_sim::SimNode::moveToJointPositionGoalCB() {
 
 	iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal = _moveToJointPositionServer.acceptNewGoal();
 
-	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
+	_moveitGoal = toMoveGroupGoal(goal);
+	_moveitRetries = 0;
 
 	_moveGroupClient.sendGoal(
-			moveitGoal,
+			_moveitGoal,
 			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
@@ -274,10 +281,11 @@ void iiwa_sim::SimNode::moveToCartesianPoseGoalCB() {
 
 	iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal = _moveToCartesianPoseServer.acceptNewGoal();
 
-	moveit_msgs::MoveGroupGoal moveitGoal = toMoveGroupGoal(goal);
+	_moveitGoal = toMoveGroupGoal(goal);
+	_moveitRetries = 0;
 
 	_moveGroupClient.sendGoal(
-			moveitGoal,
+			_moveitGoal,
 			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
@@ -290,21 +298,17 @@ void iiwa_sim::SimNode::moveToCartesianPoseLinGoalCB() {
 	cancelCurrentGoal();
 
 	iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal = _moveToCartesianPoseLinServer.acceptNewGoal();
+	ros::Time lookupTime = goal->cartesian_pose.poseStamped.header.stamp;
 
-	if (!_tfListener.waitForTransform(_eeFrame, goal->cartesian_pose.poseStamped.header.frame_id, goal->cartesian_pose.poseStamped.header.stamp, ros::Duration(1.0))) {
-		iiwa_msgs::MoveToCartesianPoseResult result;
-		result.error = "No transformation found from "+goal->cartesian_pose.poseStamped.header.frame_id+" to "+_eeFrame;
-		result.success = false;
-		ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
-		_moveToCartesianPoseLinServer.setSucceeded(result, result.error);
-		return;
+	if (goal->cartesian_pose.poseStamped.header.stamp != ros::Time(0) && !_tfListener.waitForTransform(_eeFrame, goal->cartesian_pose.poseStamped.header.frame_id, lookupTime, _maxTfLookupTime)) {
+		ROS_WARN_STREAM("[iiwa_sim:"<<__LINE__<<"] No transformation found from "+goal->cartesian_pose.poseStamped.header.frame_id+" to "+_eeFrame<<" at time "<<goal->cartesian_pose.poseStamped.header.stamp<<". Trying latest transformation instead.");
+		lookupTime = ros::Time(0);
 	}
 
 	tf::StampedTransform startTransform;
 
 	try {
-		_tfListener.lookupTransform(_eeFrame, goal->cartesian_pose.poseStamped.header.frame_id,
-									goal->cartesian_pose.poseStamped.header.stamp, startTransform);
+		_tfListener.lookupTransform(_eeFrame, goal->cartesian_pose.poseStamped.header.frame_id, lookupTime, startTransform);
 	}
 	catch (tf::TransformException ex) {
 		iiwa_msgs::MoveToCartesianPoseResult result;
@@ -325,10 +329,11 @@ void iiwa_sim::SimNode::moveToCartesianPoseLinGoalCB() {
 	startPose.pose.orientation.y = startTransform.getRotation().y();
 	startPose.pose.orientation.z = startTransform.getRotation().z();
 
-	moveit_msgs::MoveGroupGoal moveitGoal = toCartesianMoveGroupGoal(goal, startPose);
+	_moveitGoal = toCartesianMoveGroupGoal(goal, startPose);
+	_moveitRetries = 0;
 
 	_moveGroupClient.sendGoal(
-			moveitGoal,
+			_moveitGoal,
 			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
@@ -355,28 +360,27 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 	std_msgs::Header header;
 	header.frame_id = _baseFrame;
 	header.stamp = ros::Time::now();
-	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
+	_moveitGoal = getBlankMoveItGoal(header);
+	_moveitRetries = 0;
+
+	ros::Time lookupTime = header.stamp;
 
 	// Get current position of end effector
-	if (!_tfListener.waitForTransform(_eeFrame, _baseFrame, header.stamp, ros::Duration(1.0))) {
-		iiwa_msgs::MoveAlongSplineResult result;
-		result.error = "No transformation found from " + _baseFrame + " to " + _eeFrame;
-		result.success = false;
-		ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
-		_moveAlongSplineServer.setSucceeded(result, result.error);
-		return;
+	if (!_tfListener.waitForTransform(_eeFrame, _baseFrame, header.stamp, _maxTfLookupTime)) {
+		ROS_WARN_STREAM("[iiwa_sim:"<<__LINE__<<"] No transformation found from "+_baseFrame+" to "+_eeFrame<<" at time "<<header.stamp<<". Trying latest transformation instead.");
+		lookupTime = ros::Time(0);
 	}
 
 	tf::StampedTransform startTransform;
 
 	try {
-		_tfListener.lookupTransform(_eeFrame, _baseFrame, header.stamp, startTransform);
+		_tfListener.lookupTransform(_eeFrame, _baseFrame, lookupTime, startTransform);
 	}
 	catch (tf::TransformException ex) {
 		iiwa_msgs::MoveAlongSplineResult result;
 		result.error = "tf::TransformException: " + std::string(ex.what());
 		result.success = false;
-		ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
+		ROS_ERROR_STREAM("[iiwa_sim:"<<__LINE__<<"] "<<result.error);
 		_moveAlongSplineServer.setSucceeded(result, result.error);
 		return;
 	}
@@ -429,13 +433,13 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 				iiwa_msgs::MoveAlongSplineResult result;
 				result.error = "Invalid spline segment type: "+std::to_string(segment.type);
 				result.success = false;
-				ROS_ERROR_STREAM("[iiwa_sim_node:"<<__LINE__<<"] "<<result.error);
+				ROS_ERROR_STREAM("[iiwa_sim:"<<__LINE__<<"] "<<result.error);
 				_moveAlongSplineServer.setSucceeded(result, result.error);
 				return;
 		}
 
 		// append segment constraints
-		moveitGoal.request.trajectory_constraints.constraints.insert(moveitGoal.request.trajectory_constraints.constraints.end(), segmentConstraints.begin(), segmentConstraints.end());
+		_moveitGoal.request.trajectory_constraints.constraints.insert(_moveitGoal.request.trajectory_constraints.constraints.end(), segmentConstraints.begin(), segmentConstraints.end());
 
 		startRedundancyAngle = targetRedundancyAngle;
 		startPoseMsg = targetPoseMsg;
@@ -445,10 +449,10 @@ void iiwa_sim::SimNode::moveAlongSplineGoalCB() {
 	goalConstraints.position_constraints.push_back(getPositionConstraint(startPoseMsg));
 	goalConstraints.orientation_constraints.push_back(getOrientationConstraint(startPoseMsg));
 	goalConstraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", startRedundancyAngle, _redundancyAngleTolerance));
-	moveitGoal.request.goal_constraints.push_back(goalConstraints);
+	_moveitGoal.request.goal_constraints.push_back(goalConstraints);
 
 	_moveGroupClient.sendGoal(
-			moveitGoal,
+			_moveitGoal,
 			boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
@@ -580,13 +584,13 @@ moveit_msgs::MoveGroupGoal iiwa_sim::SimNode::toMoveGroupGoal(const iiwa_msgs::M
 	moveit_msgs::MoveGroupGoal moveitGoal = getBlankMoveItGoal(header);
 
 	moveit_msgs::Constraints constraints;
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_1", goal->joint_position.position.a1, _jointGoalAngleTolerance));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_2", goal->joint_position.position.a2, _jointGoalAngleTolerance));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->joint_position.position.a3, _jointGoalAngleTolerance));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_4", goal->joint_position.position.a4, _jointGoalAngleTolerance));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_5", goal->joint_position.position.a5, _jointGoalAngleTolerance));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_6", goal->joint_position.position.a6, _jointGoalAngleTolerance));
-	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_7", goal->joint_position.position.a7, _jointGoalAngleTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_1", goal->joint_position.position.a1, _jointAngleConstraintTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_2", goal->joint_position.position.a2, _jointAngleConstraintTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_3", goal->joint_position.position.a3, _jointAngleConstraintTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_4", goal->joint_position.position.a4, _jointAngleConstraintTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_5", goal->joint_position.position.a5, _jointAngleConstraintTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_6", goal->joint_position.position.a6, _jointAngleConstraintTolerance));
+	constraints.joint_constraints.push_back(getJointConstraint("iiwa_joint_7", goal->joint_position.position.a7, _jointAngleConstraintTolerance));
 	moveitGoal.request.goal_constraints.push_back(constraints);
 
 	return moveitGoal;
@@ -687,134 +691,16 @@ moveit_msgs::Constraints iiwa_sim::SimNode::getSplineMotionSegmentConstraints(co
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNode::moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
-	// TODO: Reduce redundant code
-
 	if (_moveToJointPositionServer.isActive()) {
-		iiwa_msgs::MoveToJointPositionResult result;
-
-		switch (state.state_) {
-			case actionlib::SimpleClientGoalState::SUCCEEDED:
-				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
-					result.success = false;
-					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
-				}
-				else {
-					result.success = true;
-				}
-
-				_moveToJointPositionServer.setSucceeded(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::PREEMPTED:
-				result.success = false;
-				result.error = state.text_;
-				_moveToJointPositionServer.setPreempted(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::ABORTED:
-			case actionlib::SimpleClientGoalState::LOST:
-			case actionlib::SimpleClientGoalState::RECALLED:
-				result.success = false;
-				result.error = state.text_;
-				_moveToJointPositionServer.setAborted(result, state.text_);
-				break;
-			default:
-				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
-				break;
-		}
+		processMoveGroupGoal<iiwa_msgs::MoveToJointPositionAction, iiwa_msgs::MoveToJointPositionResult>(_moveToJointPositionServer, state, moveitResult);
 	}
 	else if (_moveToCartesianPoseServer.isActive()) {
-		iiwa_msgs::MoveToCartesianPoseResult result;
-
-		switch (state.state_) {
-			case actionlib::SimpleClientGoalState::SUCCEEDED:
-				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
-					result.success = false;
-					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
-				}
-				else {
-					result.success = true;
-				}
-
-				_moveToCartesianPoseServer.setSucceeded(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::PREEMPTED:
-				result.success = false;
-				result.error = state.text_;
-				_moveToCartesianPoseServer.setPreempted(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::ABORTED:
-			case actionlib::SimpleClientGoalState::LOST:
-			case actionlib::SimpleClientGoalState::RECALLED:
-				result.success = false;
-				result.error = state.text_;
-				_moveToCartesianPoseServer.setAborted(result, state.text_);
-				break;
-			default:
-				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
-				break;
-		}
+		processMoveGroupGoal<iiwa_msgs::MoveToCartesianPoseAction, iiwa_msgs::MoveToCartesianPoseResult>(_moveToCartesianPoseServer, state, moveitResult);
 	}
 	else if (_moveToCartesianPoseLinServer.isActive()) {
-		iiwa_msgs::MoveToCartesianPoseResult result;
-
-		switch (state.state_) {
-			case actionlib::SimpleClientGoalState::SUCCEEDED:
-				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
-					result.success = false;
-					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
-				}
-				else {
-					result.success = true;
-				}
-
-				_moveToCartesianPoseLinServer.setSucceeded(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::PREEMPTED:
-				result.success = false;
-				result.error = state.text_;
-				_moveToCartesianPoseLinServer.setPreempted(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::ABORTED:
-			case actionlib::SimpleClientGoalState::LOST:
-			case actionlib::SimpleClientGoalState::RECALLED:
-				result.success = false;
-				result.error = state.text_;
-				_moveToCartesianPoseLinServer.setAborted(result, state.text_);
-				break;
-			default:
-				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
-				break;
-		}
+		processMoveGroupGoal<iiwa_msgs::MoveToCartesianPoseAction, iiwa_msgs::MoveToCartesianPoseResult>(_moveToCartesianPoseLinServer, state, moveitResult);
 	}
 	else if (_moveAlongSplineServer.isActive()) {
-		iiwa_msgs::MoveAlongSplineResult result;
-
-		switch (state.state_) {
-			case actionlib::SimpleClientGoalState::SUCCEEDED:
-				if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
-					result.success = false;
-					result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
-				}
-				else {
-					result.success = true;
-				}
-
-				_moveAlongSplineServer.setSucceeded(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::PREEMPTED:
-				result.success = false;
-				result.error = state.text_;
-				_moveAlongSplineServer.setPreempted(result, state.text_);
-				break;
-			case actionlib::SimpleClientGoalState::ABORTED:
-			case actionlib::SimpleClientGoalState::LOST:
-			case actionlib::SimpleClientGoalState::RECALLED:
-				result.success = false;
-				result.error = state.text_;
-				_moveAlongSplineServer.setAborted(result, state.text_);
-				break;
-			default:
-				ROS_ERROR_STREAM("Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
-				break;
-		}
+		processMoveGroupGoal<iiwa_msgs::MoveAlongSplineAction, iiwa_msgs::MoveAlongSplineResult>(_moveAlongSplineServer, state, moveitResult);
 	}
 }

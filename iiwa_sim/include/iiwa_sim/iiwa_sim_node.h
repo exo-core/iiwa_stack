@@ -249,6 +249,51 @@ namespace iiwa_sim {
 			 */
 			void publishCartesianPose();
 
+			template <typename ACTIVE_ACTION_TYPE, typename ACTIVE_ACTION_TYPE_RESULT> void processMoveGroupGoal(actionlib::SimpleActionServer<ACTIVE_ACTION_TYPE>& activeActionServer, const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
+				ACTIVE_ACTION_TYPE_RESULT result;
+
+				switch (state.state_) {
+					case actionlib::SimpleClientGoalState::SUCCEEDED:
+						if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
+							result.success = false;
+							result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
+						}
+						else {
+							result.success = true;
+						}
+
+						activeActionServer.setSucceeded(result, state.text_);
+						break;
+					case actionlib::SimpleClientGoalState::PREEMPTED:
+						result.success = false;
+						result.error = state.text_;
+						activeActionServer.setPreempted(result, state.text_);
+						break;
+					case actionlib::SimpleClientGoalState::ABORTED:
+						if (moveitResult->error_code.val == moveit_msgs::MoveItErrorCodes::CONTROL_FAILED && _moveitRetries < _maxMoveitRetries) {
+							ROS_DEBUG_STREAM("[iiwa_sim] "<<state.text_<<" - Resending goal");
+							ros::Duration(0.1).sleep();
+							_moveGroupClient.sendGoal(
+									_moveitGoal,
+									boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
+									actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
+									actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
+							);
+							_moveitRetries++;
+							return;
+						}
+					case actionlib::SimpleClientGoalState::LOST:
+					case actionlib::SimpleClientGoalState::RECALLED:
+						result.success = false;
+						result.error = state.text_;
+						activeActionServer.setAborted(result, state.text_);
+						break;
+					default:
+						ROS_ERROR_STREAM("[iiwa_sim] Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
+						break;
+				}
+			}
+
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
 			JointStateListener _jointStateListener;
@@ -267,7 +312,10 @@ namespace iiwa_sim {
 
 			// Action client
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction> _moveGroupClient;
+			moveit_msgs::MoveGroupGoal _moveitGoal;
 			int _moveGroupSeq = 1;
+			int _moveitRetries;
+			int _maxMoveitRetries = 4;
 
 			// Service servers
 			ros::ServiceServer _setPTPJointLimitsServiceServer;
@@ -277,13 +325,15 @@ namespace iiwa_sim {
 
 			// MoveIt! parameters
 			std::string _moveGroup = "manipulator";
+			std::string _planner = "RRTStar";
 			int _numPlanningAttempts = 10;
-			double _allowedPlanningTime = 5.0;
+			double _allowedPlanningTime = 10.0;
 			double _maxVelocityScalingFactor = 1.0;
 			double _maxAccelerationScalingFactor = 1.0;
 			double _redundancyAngleTolerance = 0.05;
-			double _jointGoalAngleTolerance = 0.005;
-			std::string _planner = "RRTStar";
+			double _jointAngleConstraintTolerance = 0.005;
+			double _positionConstraintTolerance = 0.001;
+			double _orientationConstraintTolerance = 0.01;
 
 			// Other parameters
 			std::vector<std::string> _jointNames;
@@ -291,6 +341,7 @@ namespace iiwa_sim {
 			std::string _eeFrame = "iiwa_link_ee";
 			double _stepSize = 0.001;
 			int _seq = 0;
+			ros::Duration _maxTfLookupTime = ros::Duration(2.0);
 
 			// Buffers
 			iiwa_msgs::JointPosition _jointPositionMsg;
