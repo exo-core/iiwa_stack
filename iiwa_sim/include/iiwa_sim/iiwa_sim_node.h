@@ -37,6 +37,9 @@
 #include <tf/transform_listener.h>
 #include <moveit_msgs/MoveGroupAction.h>
 
+#include <iiwa_msgs/JointPosition.h>
+#include <iiwa_msgs/JointVelocity.h>
+#include <iiwa_msgs/JointTorque.h>
 #include <iiwa_msgs/MoveAlongSplineAction.h>
 #include <iiwa_msgs/MoveToCartesianPoseAction.h>
 #include <iiwa_msgs/MoveToJointPositionAction.h>
@@ -72,6 +75,11 @@ namespace iiwa_sim {
 			 * The nodes idle spin loop
 			 */
 			void spin();
+
+			/**
+			 * Publishes the latest known robot state
+			 */
+			void publishLatestRobotState();
 
 			/**
 			 * Stops the current goal, if any.
@@ -227,12 +235,74 @@ namespace iiwa_sim {
 			 */
 			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double j1, const double j2) const;
 
+			/**
+			 *
+			 * @param p
+			 * @param j
+			 * @return
+			 */
 			moveit_msgs::Constraints getSplineMotionSegmentConstraints(const geometry_msgs::PoseStamped& p, const double j) const;
 
 		protected:
+			/**
+			 * Publishes the latest known joint position
+			 */
+			void publishCartesianPose();
+
+			template <typename ACTIVE_ACTION_TYPE, typename ACTIVE_ACTION_TYPE_RESULT> void processMoveGroupGoal(actionlib::SimpleActionServer<ACTIVE_ACTION_TYPE>& activeActionServer, const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
+				ACTIVE_ACTION_TYPE_RESULT result;
+
+				switch (state.state_) {
+					case actionlib::SimpleClientGoalState::SUCCEEDED:
+						if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
+							result.success = false;
+							result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
+						}
+						else {
+							result.success = true;
+						}
+
+						activeActionServer.setSucceeded(result, state.text_);
+						break;
+					case actionlib::SimpleClientGoalState::PREEMPTED:
+						result.success = false;
+						result.error = state.text_;
+						activeActionServer.setPreempted(result, state.text_);
+						break;
+					case actionlib::SimpleClientGoalState::ABORTED:
+						if (moveitResult->error_code.val == moveit_msgs::MoveItErrorCodes::CONTROL_FAILED && _moveitRetries < _maxMoveitRetries) {
+							ROS_DEBUG_STREAM("[iiwa_sim] "<<state.text_<<" - Resending goal");
+							ros::Duration(0.1).sleep();
+							_moveGroupClient.sendGoal(
+									_moveitGoal,
+									boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
+									actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
+									actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
+							);
+							_moveitRetries++;
+							return;
+						}
+					case actionlib::SimpleClientGoalState::LOST:
+					case actionlib::SimpleClientGoalState::RECALLED:
+						result.success = false;
+						result.error = state.text_;
+						activeActionServer.setAborted(result, state.text_);
+						break;
+					default:
+						ROS_ERROR_STREAM("[iiwa_sim] Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
+						break;
+				}
+			}
+
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
 			JointStateListener _jointStateListener;
+
+			// Publishers
+			ros::Publisher _jointPositionPub;
+			ros::Publisher _jointVelocityPub;
+			ros::Publisher _jointTorquePub;
+			ros::Publisher _cartesianPosePub;
 
 			// Action servers
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToJointPositionAction> _moveToJointPositionServer;
@@ -242,7 +312,10 @@ namespace iiwa_sim {
 
 			// Action client
 			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction> _moveGroupClient;
+			moveit_msgs::MoveGroupGoal _moveitGoal;
 			int _moveGroupSeq = 1;
+			int _moveitRetries;
+			int _maxMoveitRetries = 4;
 
 			// Service servers
 			ros::ServiceServer _setPTPJointLimitsServiceServer;
@@ -252,17 +325,28 @@ namespace iiwa_sim {
 
 			// MoveIt! parameters
 			std::string _moveGroup = "manipulator";
-			int _numPlanningAttempts = 10;
-			int _allowedPlanningTime = 5.0;
-			int _maxVelocityScalingFactor = 1.0;
-			int _maxAccelerationScalingFactor = 1.0;
-			double _redundancyAngleTolerance = 0.05;
-			double _jointGoalAngleTolerance = 0.0017;
 			std::string _planner = "RRTStar";
+			int _numPlanningAttempts = 10;
+			double _allowedPlanningTime = 10.0;
+			double _maxVelocityScalingFactor = 1.0;
+			double _maxAccelerationScalingFactor = 1.0;
+			double _redundancyAngleTolerance = 0.05;
+			double _jointAngleConstraintTolerance = 0.005;
+			double _positionConstraintTolerance = 0.001;
+			double _orientationConstraintTolerance = 0.01;
 
 			// Other parameters
+			std::vector<std::string> _jointNames;
+			std::string _baseFrame = "iiwa_link_0";
 			std::string _eeFrame = "iiwa_link_ee";
 			double _stepSize = 0.001;
+			int _seq = 0;
+			ros::Duration _maxTfLookupTime = ros::Duration(2.0);
+
+			// Buffers
+			iiwa_msgs::JointPosition _jointPositionMsg;
+			iiwa_msgs::JointVelocity _jointVelocityMsg;
+			iiwa_msgs::JointTorque _jointTorqueMsg;
 	};
 }
 

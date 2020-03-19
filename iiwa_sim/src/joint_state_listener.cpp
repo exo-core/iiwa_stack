@@ -64,6 +64,7 @@ iiwa_sim::JointState iiwa_sim::JointStateListener::getJointState(const std::stri
 	}
 
 	if (time == ros::Time(0)) {
+		result.header = jointStates.back().header;
 		result.position = jointStates.back().position;
 		result.effort = jointStates.back().effort;
 		result.velocity = jointStates.back().velocity;
@@ -83,9 +84,10 @@ iiwa_sim::JointState iiwa_sim::JointStateListener::getJointState(const std::stri
 	}
 	else if (iterator1->header.stamp == time) {
 		// there is an exact match with the requested time and the stored data, so no interpolation is needed
+		result.header = jointStates.back().header;
 		result.position = iterator1->position;
-		result.position = iterator1->effort;
-		result.position = iterator1->velocity;
+		result.effort = iterator1->effort;
+		result.velocity = iterator1->velocity;
 		return result;
 	}
 	else if (iterator1 == jointStates.begin()) {
