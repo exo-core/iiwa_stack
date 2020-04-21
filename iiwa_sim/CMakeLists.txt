@@ -124,23 +124,36 @@ include_directories(
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/iiwa_sim.cpp
-# )
+add_library(
+	${PROJECT_NAME}_lib
+		src/iiwa_sim_node_moveit.cpp
+		src/iiwa_sim_node_roscontrol.cpp
+		src/iiwa_sim_node.cpp
+		src/joint_state_listener.cpp
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
-# add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(
+	${PROJECT_NAME}_lib
+		${${PROJECT_NAME}_EXPORTED_TARGETS}
+		${catkin_EXPORTED_TARGETS}
+)
 
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(
-	${PROJECT_NAME}_node
-		src/iiwa_sim_node.cpp
-		src/joint_state_listener.cpp
-		src/main.cpp
+	${PROJECT_NAME}_moveit_node
+		src/moveit_node_main.cpp
+)
+
+## Specify libraries to link a library or executable target against
+target_link_libraries(
+	${PROJECT_NAME}_moveit_node
+		${PROJECT_NAME}_lib
+		${catkin_LIBRARIES}
 )
 
 ## Rename C++ executable without prefix
@@ -149,19 +162,34 @@ add_executable(
 ## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
 # set_target_properties(${PROJECT_NAME}_node PROPERTIES OUTPUT_NAME node PREFIX "")
 
+## Declare a C++ executable
+## With catkin_make all packages are built within a single CMake context
+## The recommended prefix ensures that target names across packages don't collide
+add_executable(
+	${PROJECT_NAME}_roscontrol_node
+		src/moveit_node_main.cpp
+)
+
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 add_dependencies(
-	${PROJECT_NAME}_node
+	${PROJECT_NAME}_roscontrol_node
 		${${PROJECT_NAME}_EXPORTED_TARGETS}
 		${catkin_EXPORTED_TARGETS}
 )
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(
-	${PROJECT_NAME}_node
+	${PROJECT_NAME}_roscontrol_node
+		${PROJECT_NAME}_lib
 		${catkin_LIBRARIES}
 )
+
+## Rename C++ executable without prefix
+## The above recommended prefix causes long target names, the following renames the
+## target back to the shorter version for ease of user use
+## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
+# set_target_properties(${PROJECT_NAME}_node PROPERTIES OUTPUT_NAME node PREFIX "")
 
 #############
 ## Install ##

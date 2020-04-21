@@ -2,7 +2,7 @@
  * Copyright (C) 2016-2019 Arne Peters - arne.peters@tum.de
  * Technische Universität München
  * Chair for Chair of Robotics, Artificial Intelligence and Real-time Systems
- * Fakultät für Informatik / I16, Boltzmannstraße 3, 85748 Garching bei München, Germany
+ * Fakultät für Informatik / I6, Boltzmannstraße 3, 85748 Garching bei München, Germany
  * https://www6.in.tum.de
  * All rights reserved.
  *
@@ -35,7 +35,6 @@
 #include <actionlib/server/simple_action_server.h>
 #include <ros/ros.h>
 #include <tf/transform_listener.h>
-#include <moveit_msgs/MoveGroupAction.h>
 
 #include <iiwa_msgs/JointPosition.h>
 #include <iiwa_msgs/JointVelocity.h>
@@ -74,67 +73,32 @@ namespace iiwa_sim {
 			/**
 			 * The nodes idle spin loop
 			 */
-			void spin();
+			virtual void spin();
 
 			/**
 			 * Publishes the latest known robot state
 			 */
-			void publishLatestRobotState();
-
-			/**
-			 * Stops the current goal, if any.
-			 */
-			void cancelCurrentGoal();
-
-			/**
-			 * Create a MoveIt! constraint message for a specific axis
-			 * @param jointName
-			 * @param angle
-			 * @param tolerance
-			 * @return
-			 */
-			moveit_msgs::JointConstraint getJointConstraint(const std::string& jointName, const double angle, const double tolerance) const;
-
-			/**
-			 * Create a MoveIt! constraint message for a specific target position
-			 * @param pose
-			 * @return
-			 */
-			moveit_msgs::PositionConstraint getPositionConstraint(const geometry_msgs::PoseStamped& pose) const;
-
-			/**
-			 * Create a MoveIt! constraint message for a specific target orientation
-			 * @param pose
-			 * @return
-			 */
-			moveit_msgs::OrientationConstraint getOrientationConstraint(const geometry_msgs::PoseStamped& pose) const;
+			virtual void publishLatestRobotState();
 
 			/**
 			 * Goal callback for move_to_joint_position action
 			 */
-			void moveToJointPositionGoalCB();
+			virtual void moveToJointPositionGoalCB() = 0;
 
 			/**
 			 * Goal callback for move_to_cartesian_pose action
 			 */
-			void moveToCartesianPoseGoalCB();
+			virtual void moveToCartesianPoseGoalCB() = 0;
 
 			/**
 			 * Goal callback for move_to_cartesian_pose_lin action
 			 */
-			void moveToCartesianPoseLinGoalCB();
+			virtual void moveToCartesianPoseLinGoalCB() = 0;
 
 			/**
 			 * Goal callback for move_along_spline action
 			 */
-			void moveAlongSplineGoalCB();
-
-			/**
-			 * Goal reached callback for MoveIt!'s move_group action
-			 * @param state
-			 * @param result
-			 */
-			void moveGroupResultCB(const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& result);
+			virtual void moveAlongSplineGoalCB() = 0;
 
 			/**
 			 * Callback for configuration/setPTPJointLimits service
@@ -142,7 +106,7 @@ namespace iiwa_sim {
 			 * @param response
 			 * @return
 			 */
-			bool setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response);
+			virtual bool setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response);
 
 			/**
 			 * Callback for configuration/setPTPCartesianLimits service
@@ -150,7 +114,7 @@ namespace iiwa_sim {
 			 * @param response
 			 * @return
 			 */
-			bool setPTPCartesianLimitsServiceCB(iiwa_msgs::SetPTPCartesianSpeedLimits::Request& request, iiwa_msgs::SetPTPCartesianSpeedLimits::Response& response);
+			virtual bool setPTPCartesianLimitsServiceCB(iiwa_msgs::SetPTPCartesianSpeedLimits::Request& request, iiwa_msgs::SetPTPCartesianSpeedLimits::Response& response);
 
 			/**
 			 * Callback for configuration/setEndpointFrame service
@@ -158,7 +122,7 @@ namespace iiwa_sim {
 			 * @param response
 			 * @return
 			 */
-			bool setEndpointFrameServiceCB(iiwa_msgs::SetEndpointFrame::Request& request, iiwa_msgs::SetEndpointFrame::Response& response);
+			virtual bool setEndpointFrameServiceCB(iiwa_msgs::SetEndpointFrame::Request& request, iiwa_msgs::SetEndpointFrame::Response& response);
 
 			/**
 			 * Callback for configuration/setWorkpiece service
@@ -166,36 +130,7 @@ namespace iiwa_sim {
 			 * @param response
 			 * @return
 			 */
-			bool setWorkpieceServiceCB(iiwa_msgs::SetWorkpiece::Request& request, iiwa_msgs::SetWorkpiece::Response& response);
-
-			/**
-			 * Creates a MoveIt! move_group goal based on a target joint configuration
-			 * @param goal
-			 * @return
-			 */
-			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToJointPositionGoal::ConstPtr goal);
-
-			/**
-			 * Creates a MoveIt! move_group goal based on a Cartesian target pose
-			 * @param goal
-			 * @return
-			 */
-			moveit_msgs::MoveGroupGoal toMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal);
-
-			/**
-			 * Creates a MoveIt! move_group goal for a linear motion based on a Cartesian target pose
-			 * @param goal
-			 * @param startPose: Current pose of the end effector
-			 * @return
-			 */
-			moveit_msgs::MoveGroupGoal toCartesianMoveGroupGoal(const iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr goal, const geometry_msgs::PoseStamped& startPose);
-
-			/**
-			 * Initializes a goal for a move_group action without goal or trajectory constraints
-			 * @param header
-			 * @return
-			 */
-			moveit_msgs::MoveGroupGoal getBlankMoveItGoal(const std_msgs::Header& header) const;
+			virtual bool setWorkpieceServiceCB(iiwa_msgs::SetWorkpiece::Request& request, iiwa_msgs::SetWorkpiece::Response& response);
 
 			/**
 			 * Interpolates two poses
@@ -215,84 +150,11 @@ namespace iiwa_sim {
 			 */
 			static std::vector<geometry_msgs::Pose> interpolateLinear(const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double stepSize);
 
-			/**
-			 * Creates a list of waypoint constraint for a motion along a Cartesian line
-			 * @param header: Header to be used for creating stamped poses
-			 * @param p1: start pose
-			 * @param p2: target pose
-			 * @return
-			 */
-			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2) const;
-
-			/**
-			 * Creates a list of waypoint constraint for a motion along a Cartesian line with redundancy parameters
-			 * @param header: Header to be used for creating stamped poses
-			 * @param p1: start pose
-			 * @param p2: target pose
-			 * @param j1: start value for iiwa_joint_3
-			 * @param j2: target value for iiwa_joint_3
-			 * @return
-			 */
-			std::vector<moveit_msgs::Constraints> getLinearMotionSegmentConstraints(const std_msgs::Header& header, const geometry_msgs::Pose& p1, const geometry_msgs::Pose& p2, const double j1, const double j2) const;
-
-			/**
-			 *
-			 * @param p
-			 * @param j
-			 * @return
-			 */
-			moveit_msgs::Constraints getSplineMotionSegmentConstraints(const geometry_msgs::PoseStamped& p, const double j) const;
-
 		protected:
 			/**
 			 * Publishes the latest known joint position
 			 */
 			void publishCartesianPose();
-
-			template <typename ACTIVE_ACTION_TYPE, typename ACTIVE_ACTION_TYPE_RESULT> void processMoveGroupGoal(actionlib::SimpleActionServer<ACTIVE_ACTION_TYPE>& activeActionServer, const actionlib::SimpleClientGoalState& state, const moveit_msgs::MoveGroupResultConstPtr& moveitResult) {
-				ACTIVE_ACTION_TYPE_RESULT result;
-
-				switch (state.state_) {
-					case actionlib::SimpleClientGoalState::SUCCEEDED:
-						if (moveitResult->error_code.val != moveit_msgs::MoveItErrorCodes::SUCCESS) {
-							result.success = false;
-							result.error = "Failed with MoveIt! error code "+std::to_string(moveitResult->error_code.val)+": "+state.text_;
-						}
-						else {
-							result.success = true;
-						}
-
-						activeActionServer.setSucceeded(result, state.text_);
-						break;
-					case actionlib::SimpleClientGoalState::PREEMPTED:
-						result.success = false;
-						result.error = state.text_;
-						activeActionServer.setPreempted(result, state.text_);
-						break;
-					case actionlib::SimpleClientGoalState::ABORTED:
-						if (moveitResult->error_code.val == moveit_msgs::MoveItErrorCodes::CONTROL_FAILED && _moveitRetries < _maxMoveitRetries) {
-							ROS_DEBUG_STREAM("[iiwa_sim] "<<state.text_<<" - Resending goal");
-							ros::Duration(0.1).sleep();
-							_moveGroupClient.sendGoal(
-									_moveitGoal,
-									boost::bind(&SimNode::moveGroupResultCB, this, _1, _2),
-									actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleActiveCallback(),
-									actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction>::SimpleFeedbackCallback()
-							);
-							_moveitRetries++;
-							return;
-						}
-					case actionlib::SimpleClientGoalState::LOST:
-					case actionlib::SimpleClientGoalState::RECALLED:
-						result.success = false;
-						result.error = state.text_;
-						activeActionServer.setAborted(result, state.text_);
-						break;
-					default:
-						ROS_ERROR_STREAM("[iiwa_sim] Invalid goal result state: "<<state.state_<<" ("<<state.text_<<")");
-						break;
-				}
-			}
 
 			ros::NodeHandle _nh;
 			tf::TransformListener _tfListener;
@@ -310,30 +172,11 @@ namespace iiwa_sim {
 			actionlib::SimpleActionServer<iiwa_msgs::MoveToCartesianPoseAction> _moveToCartesianPoseLinServer;
 			actionlib::SimpleActionServer<iiwa_msgs::MoveAlongSplineAction> _moveAlongSplineServer;
 
-			// Action client
-			actionlib::SimpleActionClient<moveit_msgs::MoveGroupAction> _moveGroupClient;
-			moveit_msgs::MoveGroupGoal _moveitGoal;
-			int _moveGroupSeq = 1;
-			int _moveitRetries;
-			int _maxMoveitRetries = 4;
-
 			// Service servers
 			ros::ServiceServer _setPTPJointLimitsServiceServer;
 			ros::ServiceServer _setPTPCartesianLimitsServiceServer;
 			ros::ServiceServer _setEndpointFrameServiceServer;
 			ros::ServiceServer _setWorkpieceServiceServer;
-
-			// MoveIt! parameters
-			std::string _moveGroup = "manipulator";
-			std::string _planner = "RRTStar";
-			int _numPlanningAttempts = 10;
-			double _allowedPlanningTime = 10.0;
-			double _maxVelocityScalingFactor = 1.0;
-			double _maxAccelerationScalingFactor = 1.0;
-			double _redundancyAngleTolerance = 0.05;
-			double _jointAngleConstraintTolerance = 0.005;
-			double _positionConstraintTolerance = 0.001;
-			double _orientationConstraintTolerance = 0.01;
 
 			// Other parameters
 			std::vector<std::string> _jointNames;

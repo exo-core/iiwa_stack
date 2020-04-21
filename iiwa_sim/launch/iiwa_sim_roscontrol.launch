@@ -1,13 +1,10 @@
 <?xml version="1.0"?>
 <launch>
     <arg name="robot_name" default="iiwa" />
-    <arg name="planner" default="RRTStar" />
 
     <group ns="iiwa">
         <param name="move_group" type="string" value="$(arg robot_name)" />
-        <param name="planner" type="string" value="$(arg planner)" />
-        <param name="num_planning_attempts" type="double" value="10" />
-        <param name="allowed_planning_time" type="double" value="5.0" />
+
         <param name="max_velocity_scaling_factor" type="double" value="0.1" />
         <param name="max_acceleration_scaling_factor" type="double" value="0.5" />
 
@@ -16,6 +13,10 @@
         <param name="position_constraint_tolerance" type="double" value="0.001" />
         <param name="orientation_constraint_tolerance" type="double" value="0.005" />
 
-        <node name="iiwa_sim" pkg="iiwa_sim" type="iiwa_sim_node" output="screen" />
+        <node name="iiwa_sim" pkg="iiwa_sim" type="iiwa_sim_roscontrol_node" output="screen" />
     </group>
+
+    <include file="$(find iiwa_control)/launch/iiwa_sunrise.launch">
+        <arg name="robot_name" default="$(arg robot_name)" />
+    </include>
 </launch>

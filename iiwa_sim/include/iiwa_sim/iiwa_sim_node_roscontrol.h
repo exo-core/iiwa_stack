@@ -2,7 +2,7 @@
  * Copyright (C) 2016-2019 Arne Peters - arne.peters@tum.de
  * Technische Universität München
  * Chair for Chair of Robotics, Artificial Intelligence and Real-time Systems
- * Fakultät für Informatik / I16, Boltzmannstraße 3, 85748 Garching bei München, Germany
+ * Fakultät für Informatik / I6, Boltzmannstraße 3, 85748 Garching bei München, Germany
  * https://www6.in.tum.de
  * All rights reserved.
  *
@@ -28,15 +28,63 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <ros/ros.h>
+#ifndef SRC_IIWA_SIM_NODE_ROSCONTROL_H
+#define SRC_IIWA_SIM_NODE_ROSCONTROL_H
+
 #include <iiwa_sim/iiwa_sim_node.h>
 
-int main(int argc, char *argv[]) {
+namespace iiwa_sim {
+	class SimNodeRoscontrol : public SimNode {
+		public:
+			/**
+			 * Constructor
+			 */
+			SimNodeRoscontrol();
 
-	ROS_INFO("[iiwa_sim] Starting SimNode");
+			/**
+			 * Destructor
+			 */
+			virtual ~SimNodeRoscontrol();
 
-	ros::init(argc, argv, "iiwa_sim");
+			/**
+			 * Goal callback for move_to_joint_position action
+			 */
+			virtual void moveToJointPositionGoalCB() override;
 
-	iiwa_sim::SimNode node;
-	node.spin();
+			/**
+			 * Goal callback for move_to_cartesian_pose action
+			 */
+			virtual void moveToCartesianPoseGoalCB() override;
+
+			/**
+			 * Goal callback for move_to_cartesian_pose_lin action
+			 */
+			virtual void moveToCartesianPoseLinGoalCB() override;
+
+			/**
+			 * Goal callback for move_along_spline action
+			 */
+			virtual void moveAlongSplineGoalCB() override;
+
+			/**
+			 * Stops the current goal, if any.
+			 */
+			virtual void cancelCurrentGoal();
+
+			/**
+			 * Callback for configuration/setPTPJointLimits service
+			 * @param request
+			 * @param response
+			 * @return
+			 */
+			virtual bool setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response) override;
+
+		protected:
+			ros::Publisher _commandJointPositionPub;
+			ros::Publisher _commandCartesianPosePub;
+			ros::Publisher _commandCartesianPoseLinPub;
+	};
 }
+
+
+#endif //SRC_IIWA_SIM_NODE_ROSCONTROL_H
