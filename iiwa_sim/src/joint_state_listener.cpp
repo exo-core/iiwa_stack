@@ -43,7 +43,7 @@ iiwa_sim::JointStateListener::~JointStateListener() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-iiwa_sim::JointState iiwa_sim::JointStateListener::getJointState(const std::string& jointName, const ros::Time& time) {
+iiwa_sim::JointState iiwa_sim::JointStateListener::getJointState(const std::string& jointName, const ros::Time& time) const {
 	iiwa_sim::JointState result;
 	result.header.frame_id = jointName;
 	result.header.stamp = time;
@@ -57,7 +57,7 @@ iiwa_sim::JointState iiwa_sim::JointStateListener::getJointState(const std::stri
 		return result;
 	}
 
-	const std::list<iiwa_sim::JointState>& jointStates = _jointStates[jointName];
+	const std::list<iiwa_sim::JointState>& jointStates = _jointStates.at(jointName);
 
 	if (jointStates.empty()) {
 		return result;

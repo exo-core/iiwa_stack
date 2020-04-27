@@ -34,6 +34,24 @@
 #include <iiwa_sim/iiwa_sim_node.h>
 
 namespace iiwa_sim {
+	enum GoalType {
+		NONE,
+		JOINT_POSITION,
+		CARTESIAN_POSE,
+		CARTESIAN_POSE_LIN,
+		CARTESIAN_SPLINE
+	};
+
+	struct MotionGoal {
+		GoalType type = NONE;
+
+		iiwa_msgs::MoveToJointPositionGoal::ConstPtr moveToJointPositionGoal;
+		iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr moveToCartesianPoseGoal;
+		iiwa_msgs::MoveToCartesianPoseGoal::ConstPtr moveToCartesianPoseLinGoal;
+		iiwa_msgs::MoveAlongSplineGoal::ConstPtr moveAlongSplineGoal;
+		int splineIndex = 0;
+	};
+
 	class SimNodeRoscontrol : public SimNode {
 		public:
 			/**
@@ -45,6 +63,11 @@ namespace iiwa_sim {
 			 * Destructor
 			 */
 			virtual ~SimNodeRoscontrol();
+
+			/**
+			 * The nodes idle spin loop
+			 */
+			virtual void spin() override;
 
 			/**
 			 * Goal callback for move_to_joint_position action
@@ -79,10 +102,46 @@ namespace iiwa_sim {
 			 */
 			virtual bool setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response) override;
 
+			/**
+			 * Callback for iiwa joint position
+			 * @param msg
+			 */
+			void jointPositionCallback(const iiwa_msgs::JointPosition::ConstPtr& msg);
+
+			/**
+			 * Callback for iiwa Cartesian pose
+			 * @param msg
+			 */
+			void cartesianPoseCallback(const iiwa_msgs::CartesianPose::ConstPtr& msg);
+
 		protected:
+			iiwa_msgs::JointPosition getCurrentJointPosition() const;
+
+			bool goalReached(const iiwa_msgs::JointPosition& currentPosition, const iiwa_msgs::JointPosition& targetPosition) const;
+			bool goalReached(const iiwa_msgs::CartesianPose& currentPose, const iiwa_msgs::CartesianPose& targetPose) const;
+
+			template <typename ACTIVE_ACTION_TYPE, typename ACTIVE_ACTION_TYPE_RESULT> void markActionDone(actionlib::SimpleActionServer<ACTIVE_ACTION_TYPE>& activeActionServer, bool success = true, const std::string& error = "") {
+				ACTIVE_ACTION_TYPE_RESULT result;
+				result.success = success;
+				result.error = error;
+				activeActionServer.setSucceeded(result);
+
+				_currentGoal.type = NONE;
+			}
+
+			MotionGoal _currentGoal;
+
 			ros::Publisher _commandJointPositionPub;
 			ros::Publisher _commandCartesianPosePub;
 			ros::Publisher _commandCartesianPoseLinPub;
+
+			ros::Subscriber _jointPositionSub;
+			ros::Subscriber _cartesianPoseSub;
+
+			double _redundancyAngleTolerance = 0.05;
+			double _jointAngleConstraintTolerance = 0.005;
+			double _positionConstraintTolerance = 0.001;
+			double _orientationConstraintTolerance = 0.01;
 	};
 }
 

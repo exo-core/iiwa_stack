@@ -35,6 +35,7 @@
 #include <queue>
 #include <ros/ros.h>
 #include <sensor_msgs/JointState.h>
+#include <iiwa_msgs/JointPosition.h>
 
 namespace iiwa_sim {
 	struct JointState {
@@ -69,7 +70,7 @@ namespace iiwa_sim {
 			 * @param time
 			 * @return
 			 */
-			iiwa_sim::JointState getJointState(const std::string& jointName, const ros::Time& time = ros::Time(0));
+			iiwa_sim::JointState getJointState(const std::string& jointName, const ros::Time& time = ros::Time(0)) const;
 
 			/**
 			 * Callback for joint state messages.

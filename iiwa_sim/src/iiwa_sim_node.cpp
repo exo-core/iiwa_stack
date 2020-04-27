@@ -105,35 +105,19 @@ void iiwa_sim::SimNode::publishLatestRobotState() {
 		_jointVelocityMsg.velocity.a1 = jointState1.velocity;
 		_jointTorqueMsg.torque.a1 = jointState1.effort;
 
-		JointState jointState2 = _jointStateListener.getJointState(_jointNames[1], jointState1.header.stamp);
-		_jointPositionMsg.position.a2 = jointState2.position;
-		_jointVelocityMsg.velocity.a2 = jointState2.velocity;
-		_jointTorqueMsg.torque.a2 = jointState2.effort;
+		auto setJointState = [this, jointState1](const std::string& jointName, float& position, float& velocity, float& torque) {
+			JointState jointState = _jointStateListener.getJointState(jointName, jointState1.header.stamp);
+			position = jointState.position;
+			velocity = jointState.velocity;
+			torque = jointState.effort;
+		};
 
-		JointState jointState3 = _jointStateListener.getJointState(_jointNames[2], jointState1.header.stamp);
-		_jointPositionMsg.position.a3 = jointState3.position;
-		_jointVelocityMsg.velocity.a3 = jointState3.velocity;
-		_jointTorqueMsg.torque.a3 = jointState3.effort;
-
-		JointState jointState4 = _jointStateListener.getJointState(_jointNames[3], jointState1.header.stamp);
-		_jointPositionMsg.position.a4 = jointState4.position;
-		_jointVelocityMsg.velocity.a4 = jointState4.velocity;
-		_jointTorqueMsg.torque.a4 = jointState4.effort;
-
-		JointState jointState5 = _jointStateListener.getJointState(_jointNames[4], jointState1.header.stamp);
-		_jointPositionMsg.position.a5 = jointState5.position;
-		_jointVelocityMsg.velocity.a5 = jointState5.velocity;
-		_jointTorqueMsg.torque.a5 = jointState5.effort;
-
-		JointState jointState6 = _jointStateListener.getJointState(_jointNames[5], jointState1.header.stamp);
-		_jointPositionMsg.position.a6 = jointState6.position;
-		_jointVelocityMsg.velocity.a6 = jointState6.velocity;
-		_jointTorqueMsg.torque.a6 = jointState6.effort;
-
-		JointState jointState7 = _jointStateListener.getJointState(_jointNames[6], jointState1.header.stamp);
-		_jointPositionMsg.position.a7 = jointState7.position;
-		_jointVelocityMsg.velocity.a7 = jointState7.velocity;
-		_jointTorqueMsg.torque.a7 = jointState7.effort;
+		setJointState(_jointNames[1], _jointPositionMsg.position.a2, _jointVelocityMsg.velocity.a2, _jointTorqueMsg.torque.a2);
+		setJointState(_jointNames[2], _jointPositionMsg.position.a3, _jointVelocityMsg.velocity.a3, _jointTorqueMsg.torque.a3);
+		setJointState(_jointNames[3], _jointPositionMsg.position.a4, _jointVelocityMsg.velocity.a4, _jointTorqueMsg.torque.a4);
+		setJointState(_jointNames[4], _jointPositionMsg.position.a5, _jointVelocityMsg.velocity.a5, _jointTorqueMsg.torque.a5);
+		setJointState(_jointNames[5], _jointPositionMsg.position.a6, _jointVelocityMsg.velocity.a6, _jointTorqueMsg.torque.a6);
+		setJointState(_jointNames[6], _jointPositionMsg.position.a7, _jointVelocityMsg.velocity.a7, _jointTorqueMsg.torque.a7);
 
 		_jointPositionPub.publish(_jointPositionMsg);
 		_jointVelocityPub.publish(_jointVelocityMsg);
