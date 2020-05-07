@@ -97,6 +97,7 @@ class IiwaSunrise(object):
     self.robot_name = get_param('~robot_name', 'iiwa')
     model = get_param('~model', 'iiwa14')
     tool_length = get_param('~tool_length', 0.0)
+    flange_type = get_param('~flange_type', 'basic')
 
     if model == 'iiwa7':
       self.l02 = 0.34
@@ -108,8 +109,16 @@ class IiwaSunrise(object):
       logerr('unknown robot model')
       return
 
+    if flange_type in ['basic', 'electrical', 'pneumatic', 'IO_pneumatic', 'IO_electrical', 'inside_electrical']:
+      flange_offset = 0.0
+    elif flange_type in ['touch_pneumatic', 'touch_electrical', 'IO_valve_pneumatic']:
+      flange_offset = 0.026
+    else:
+      logerr('unkown flange type')
+      return
+
     self.l46 = 0.4
-    self.l6E = 0.126 + tool_length
+    self.l6E = 0.126 + tool_length + flange_offset
 
     self.tr = 0.0
     self.v = 1.0
