@@ -147,8 +147,8 @@ namespace iiwa_sim {
 
 			double _redundancyAngleTolerance = 0.05;
 			double _jointAngleConstraintTolerance = 0.005;
-			double _positionConstraintTolerance = 0.001;
-			double _orientationConstraintTolerance = 0.01;
+			double _positionConstraintTolerance = 0.003;
+			double _orientationConstraintTolerance = 0.05;
 	};
 }
 

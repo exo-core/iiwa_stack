@@ -54,7 +54,7 @@ void iiwa_sim::SimNodeRoscontrol::spin() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNodeRoscontrol::moveToJointPositionGoalCB() {
-	ROS_INFO_STREAM("[SimNodeRoscontrol] Received new joint goal");
+	ROS_DEBUG_STREAM("[SimNodeRoscontrol] Received new joint goal");
 
 	cancelCurrentGoal();
 
@@ -207,7 +207,7 @@ iiwa_msgs::JointPosition iiwa_sim::SimNodeRoscontrol::getCurrentJointPosition() 
 // ---------------------------------------------------------------------------------------------------------------------
 
 bool iiwa_sim::SimNodeRoscontrol::goalReached(const iiwa_msgs::JointPosition& currentPosition, const iiwa_msgs::JointPosition& targetPosition) const {
-	//ROS_INFO("Checking for goal reached...");
+	//ROS_INFO("[SimNodeRoscontrol] Checking for joint goal reached...");
 	if (
 			std::fabs(currentPosition.position.a1 - targetPosition.position.a1) <= _jointAngleConstraintTolerance &&
 			std::fabs(currentPosition.position.a2 - targetPosition.position.a2) <= _jointAngleConstraintTolerance &&
@@ -234,11 +234,21 @@ bool iiwa_sim::SimNodeRoscontrol::goalReached(const iiwa_msgs::CartesianPose& cu
 	tf::pointMsgToTF(currentPose.poseStamped.pose.position, currentPosition);
 	tf::pointMsgToTF(targetPose.poseStamped.pose.position, targetPosition);
 
+	double positionError = (currentPosition - targetPosition).length();
+	double orientationError = currentOrientation.angleShortestPath(targetOrientation);
+	double redundancyError = 0;
+	if ((targetPose.redundancy.status != -1) && (targetPose.redundancy.turn != -1)) {
+		redundancyError = std::fabs(currentPose.redundancy.e1 - targetPose.redundancy.e1);
+	}
+
+	//ROS_INFO_STREAM("[SimNodeRoscontrol] Checking for Cartesian goal reached... Position error: "<<positionError<<"m, orientation error: "<<orientationError<<"rad, redundancyError: "<<redundancyError);
+
 	if (
-		(currentPosition - targetPosition).length() < _positionConstraintTolerance &&
-		currentOrientation.angleShortestPath(targetOrientation) < _orientationConstraintTolerance &&
-		std::fabs(currentPose.redundancy.e1 - targetPose.redundancy.e1) < _redundancyAngleTolerance
+		positionError <= _positionConstraintTolerance &&
+		orientationError <= _orientationConstraintTolerance &&
+		redundancyError <= _redundancyAngleTolerance
 	) {
+		ROS_DEBUG_STREAM("[SimNodeRoscontrol] Position goal reached. Position error: "<<positionError<<"m, orientation error: "<<orientationError<<"rad.");
 		return true;
 	}
 

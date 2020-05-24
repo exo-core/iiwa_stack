@@ -181,6 +181,9 @@ class IiwaSunrise(object):
       return SetSmartServoLinSpeedLimitsResponse(False, '')
 
   def redundancyCb(self, msg):
+    if msg.status == -1 or msg.turn == -1:
+      return
+
     self.tr = msg.e1
 
   def jointStatesCb(self, msg):

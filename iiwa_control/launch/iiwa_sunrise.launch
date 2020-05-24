@@ -4,6 +4,10 @@
   <arg name="robot_name" default="iiwa" />
   <arg name="model" default="iiwa14"/>
   <arg name="tool_length" default="0.0"/>
+
+  <!-- Robot flange type
+   {'basic' | 'electrical' | 'pneumatic' | 'IO_pneumatic' | 'IO_electrical' | 'inside_electrical' | 'touch_pneumatic' | 'touch_electrical' | 'IO_valve_pneumatic'}
+   -->
   <arg name="flange_type" default="basic"/>
 
   <group ns="$(arg robot_name)">

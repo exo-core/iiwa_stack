@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <launch>
     <arg name="robot_name" default="iiwa" />
+    <arg name="robot_flange" default="basic" />
 
     <group ns="iiwa">
         <param name="move_group" type="string" value="$(arg robot_name)" />
@@ -18,5 +19,6 @@
 
     <include file="$(find iiwa_control)/launch/iiwa_sunrise.launch">
         <arg name="robot_name" default="$(arg robot_name)" />
+        <arg name="flange_type" default="$(arg robot_flange)" />
     </include>
 </launch>
