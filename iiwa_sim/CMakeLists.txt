@@ -167,7 +167,7 @@ target_link_libraries(
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(
 	${PROJECT_NAME}_roscontrol_node
-		src/moveit_node_main.cpp
+		src/roscontrol_node_main.cpp
 )
 
 ## Add cmake target dependencies of the executable

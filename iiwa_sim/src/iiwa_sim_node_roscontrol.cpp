@@ -32,11 +32,11 @@
 
 iiwa_sim::SimNodeRoscontrol::SimNodeRoscontrol()
 : iiwa_sim::SimNode::SimNode() {
-	ros::Publisher _commandJointPositionPub = _nh.advertise<iiwa_msgs::JointPosition>("command/JointPosition", 1);
-	ros::Publisher _commandCartesianPosePub = _nh.advertise<iiwa_msgs::CartesianPose>("command/CartesianPose", 1);
-	ros::Publisher _commandCartesianPoseLinPub = _nh.advertise<iiwa_msgs::CartesianPose>("command/CartesianPoseLin", 1);
+	_commandJointPositionPub = _nh.advertise<iiwa_msgs::JointPosition>("command/JointPosition", 1);
+	_commandCartesianPosePub = _nh.advertise<iiwa_msgs::CartesianPose>("command/CartesianPose", 1);
+	_commandCartesianPoseLinPub = _nh.advertise<iiwa_msgs::CartesianPose>("command/CartesianPoseLin", 1);
 
-	_jointPositionSub = _nh.subscribe("state/JointStates", 2, &iiwa_sim::SimNodeRoscontrol::jointPositionCallback, this);
+	_jointPositionSub = _nh.subscribe("state/JointPosition", 2, &iiwa_sim::SimNodeRoscontrol::jointPositionCallback, this);
 	_cartesianPoseSub = _nh.subscribe("state/CartesianPose", 2, &iiwa_sim::SimNodeRoscontrol::cartesianPoseCallback, this);
 }
 
@@ -54,6 +54,8 @@ void iiwa_sim::SimNodeRoscontrol::spin() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNodeRoscontrol::moveToJointPositionGoalCB() {
+	ROS_INFO_STREAM("[SimNodeRoscontrol] Received new joint goal");
+
 	cancelCurrentGoal();
 
 	_currentGoal.type = JOINT_POSITION;
@@ -64,6 +66,7 @@ void iiwa_sim::SimNodeRoscontrol::moveToJointPositionGoalCB() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNodeRoscontrol::moveToCartesianPoseGoalCB() {
+	ROS_DEBUG_STREAM("[SimNodeRoscontrol] Received new Cartesian goal");
 	cancelCurrentGoal();
 
 	_currentGoal.type = CARTESIAN_POSE;
@@ -74,6 +77,7 @@ void iiwa_sim::SimNodeRoscontrol::moveToCartesianPoseGoalCB() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 void iiwa_sim::SimNodeRoscontrol::moveToCartesianPoseLinGoalCB() {
+	ROS_DEBUG_STREAM("[SimNodeRoscontrol] Received new Cartesian lin goal");
 	cancelCurrentGoal();
 
 	_currentGoal.type = CARTESIAN_POSE_LIN;
@@ -129,7 +133,7 @@ void iiwa_sim::SimNodeRoscontrol::cancelCurrentGoal() {
 			break;
 		}
 		default: {
-			ROS_ERROR_STREAM("Unknown goal state: "<<_currentGoal.type);
+			ROS_ERROR_STREAM("[SimNodeRoscontrol] Unknown goal state: "<<_currentGoal.type);
 		}
 	}
 
@@ -203,14 +207,15 @@ iiwa_msgs::JointPosition iiwa_sim::SimNodeRoscontrol::getCurrentJointPosition() 
 // ---------------------------------------------------------------------------------------------------------------------
 
 bool iiwa_sim::SimNodeRoscontrol::goalReached(const iiwa_msgs::JointPosition& currentPosition, const iiwa_msgs::JointPosition& targetPosition) const {
+	//ROS_INFO("Checking for goal reached...");
 	if (
-			std::fabs(currentPosition.position.a1 - targetPosition.position.a1) < _jointAngleConstraintTolerance &&
-			std::fabs(currentPosition.position.a2 - targetPosition.position.a2) < _jointAngleConstraintTolerance &&
-			std::fabs(currentPosition.position.a3 - targetPosition.position.a3) < _jointAngleConstraintTolerance &&
-			std::fabs(currentPosition.position.a4 - targetPosition.position.a4) < _jointAngleConstraintTolerance &&
-			std::fabs(currentPosition.position.a5 - targetPosition.position.a5) < _jointAngleConstraintTolerance &&
-			std::fabs(currentPosition.position.a6 - targetPosition.position.a6) < _jointAngleConstraintTolerance &&
-			std::fabs(currentPosition.position.a7 - targetPosition.position.a7) < _jointAngleConstraintTolerance
+			std::fabs(currentPosition.position.a1 - targetPosition.position.a1) <= _jointAngleConstraintTolerance &&
+			std::fabs(currentPosition.position.a2 - targetPosition.position.a2) <= _jointAngleConstraintTolerance &&
+			std::fabs(currentPosition.position.a3 - targetPosition.position.a3) <= _jointAngleConstraintTolerance &&
+			std::fabs(currentPosition.position.a4 - targetPosition.position.a4) <= _jointAngleConstraintTolerance &&
+			std::fabs(currentPosition.position.a5 - targetPosition.position.a5) <= _jointAngleConstraintTolerance &&
+			std::fabs(currentPosition.position.a6 - targetPosition.position.a6) <= _jointAngleConstraintTolerance &&
+			std::fabs(currentPosition.position.a7 - targetPosition.position.a7) <= _jointAngleConstraintTolerance
 	) {
 		return true;
 	}

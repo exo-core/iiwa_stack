@@ -121,6 +121,13 @@ namespace iiwa_sim {
 			bool goalReached(const iiwa_msgs::CartesianPose& currentPose, const iiwa_msgs::CartesianPose& targetPose) const;
 
 			template <typename ACTIVE_ACTION_TYPE, typename ACTIVE_ACTION_TYPE_RESULT> void markActionDone(actionlib::SimpleActionServer<ACTIVE_ACTION_TYPE>& activeActionServer, bool success = true, const std::string& error = "") {
+				if (success) {
+					ROS_DEBUG("[SimNodeRoscontrol] Marking current goal reached.");
+				}
+				else {
+					ROS_DEBUG("[SimNodeRoscontrol] Marking current goal failed.");
+				}
+
 				ACTIVE_ACTION_TYPE_RESULT result;
 				result.success = success;
 				result.error = error;

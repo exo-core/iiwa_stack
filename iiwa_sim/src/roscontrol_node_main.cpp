@@ -37,6 +37,6 @@ int main(int argc, char *argv[]) {
 
 	ros::init(argc, argv, "iiwa_sim");
 
-	iiwa_sim::SimNodeRocontrol node;
+	iiwa_sim::SimNodeRoscontrol node;
 	node.spin();
 }
