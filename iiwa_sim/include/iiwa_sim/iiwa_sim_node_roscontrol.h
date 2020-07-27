@@ -145,9 +145,9 @@ namespace iiwa_sim {
 			ros::Subscriber _jointPositionSub;
 			ros::Subscriber _cartesianPoseSub;
 
-			double _redundancyAngleTolerance = 0.05;
+			double _redundancyAngleTolerance = 0.005;
 			double _jointAngleConstraintTolerance = 0.005;
-			double _positionConstraintTolerance = 0.003;
+			double _positionConstraintTolerance = 0.001;
 			double _orientationConstraintTolerance = 0.05;
 	};
 }
