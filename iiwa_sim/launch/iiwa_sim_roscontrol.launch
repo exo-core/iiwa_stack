@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
     <arg name="robot_name" default="iiwa" />
-    <arg name="robot_flange" default="basic" />
+    <arg name="robot_flange" default="touch_electrical" />
 
     <group ns="iiwa">
         <param name="move_group" type="string" value="$(arg robot_name)" />
