@@ -33,6 +33,7 @@ from iiwa_msgs.msg import JointPosition, JointQuantity, CartesianPose, Redundanc
 from iiwa_msgs.srv import ConfigureControlMode, ConfigureControlModeRequest, ConfigureControlModeResponse
 from iiwa_msgs.srv import SetSmartServoJointSpeedLimits, SetSmartServoJointSpeedLimitsRequest, SetSmartServoJointSpeedLimitsResponse
 from iiwa_msgs.srv import SetSmartServoLinSpeedLimits, SetSmartServoLinSpeedLimitsRequest, SetSmartServoLinSpeedLimitsResponse
+import numpy as np
 from numpy import pi, sqrt, cos, sin, arctan2, array, matrix
 from numpy.linalg import norm
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseStamped, WrenchStamped
@@ -89,6 +90,13 @@ def Hrrt(ty, tz, l):
                  [-sy, 0.0, cy, l],
                  [0.0, 0.0, 0.0, 1.0]])
 
+def normalize_angle(angle):
+  while angle > pi:
+    angle -= 2*pi
+  while angle < -pi:
+    angle += 2*pi
+  return angle
+
 class IiwaSunrise(object):
   def __init__(self):
     init_node('iiwa_sunrise', log_level = INFO)
@@ -121,6 +129,7 @@ class IiwaSunrise(object):
     self.l6E = 0.126 + tool_length + flange_offset
 
     self.tr = 0.0
+    self.rs = 2.0
     self.v = 1.0
 
     self.joint_names = ['{}_joint_1'.format(self.robot_name),
@@ -181,16 +190,23 @@ class IiwaSunrise(object):
       return SetSmartServoLinSpeedLimitsResponse(False, '')
 
   def redundancyCb(self, msg):
-    if msg.status == -1 or msg.turn == -1:
-      return
+    if not (msg.status == -1 or msg.turn == -1):
+      self.rs = msg.status 
 
     self.tr = msg.e1
 
   def jointStatesCb(self, msg):
-    if len(msg.name) != 7 or msg.name[0] != 'iiwa_joint_1':
+    if len(msg.name) != 7 or msg.name[0] != '{}_joint_1'.format(self.robot_name):
       return
 
     t = msg.position
+
+    rs = 0
+    rs += 1 if t[1] < 0 else 0
+    rs += 2 if t[3] < 0 else 0
+    rs += 4 if t[5] < 0 else 0
+
+    self.rs = rs
 
     H02 = Hrrt(t[1], t[0], self.l02)
     H24 = Hrrt(-t[3], t[2], self.l24)
@@ -239,6 +255,11 @@ class IiwaSunrise(object):
                  msg.poseStamped.pose.orientation.z,
                  msg.poseStamped.pose.orientation.w])
 
+    rs = self.rs
+    rs2 = - np.sign((rs & (1 << 0))-0.5)
+    rs4 = - np.sign((rs & (1 << 1))-0.5)
+    rs6 = - np.sign((rs & (1 << 2))-0.5)
+
     pE6 = matrix([[0.0], [0.0], [self.l6E]])
     p20 = matrix([[0.0], [0.0], [self.l02]])
 
@@ -253,23 +274,38 @@ class IiwaSunrise(object):
       logwarn('invalid pose command')
       return
 
-    (tys, tzs) = rr(p260)
-    tp24z0 = 1/(2.0 * s) * (self.l24**2 - self.l46**2 + s**2)
-    tp240 = matrix([[-sqrt(self.l24**2 - tp24z0**2)], [0.0], [tp24z0]])
-    p240 = Ryz(tys, tzs) * Rz(self.tr) * tp240
-    (t[1], t[0]) = rr(p240)
+    t[3] = rs4 * (np.pi - np.arccos((self.l24**2 + self.l46**2 - s**2)/(2*self.l24 * self.l46)))
+    t[2] = self.tr
+
+    x = -cos(t[2])*sin(t[3]) * self.l46
+    y = -sin(t[2])*sin(t[3]) * self.l46
+    z = cos(t[3]) * self.l46 + self.l24
+    xz = (x**2 + z **2) ** 0.5
+
+    z_des = p260[2].item()
+
+    t[1] = np.arccos(z_des / xz) - np.arctan2(x, z)
+    if np.sign(t[1]) != rs2:
+      t[1] = - np.arccos(z_des / xz) - np.arctan2(x, z)
+    if np.sign(t[1]) != rs2:
+      logwarn('Joint 2 has no solution for required {} sign.'.format('negative' if rs2 == -1 else 'positive'))
+      return
+
+    x = self.l24*sin(t[1]) + (cos(t[3])*sin(t[1]) - (cos(t[1])*cos(t[2]))*sin(t[3]))*self.l46
+
+    x_des = p260[0].item()
+    y_des = p260[1].item()
+
+    t[0] = normalize_angle(np.arctan2(y_des, x_des) - np.arctan2(y,x))
 
     R20 = Ryz(t[1], t[0])
-    p40 = p20 + p240
-    p460 = p60 - p40
-    p462 = R20.T * p460
-    (t[3], t[2]) = rr(p462)
-    t[3] = -t[3]
-
     R42 = Ryz(-t[3], t[2])
     R40 = R20 * R42
     p6E4 = R40.T * p6E0
     (t[5], t[4]) = rr(p6E4)
+    if np.sign(t[5]) != rs6:
+      t[4] = normalize_angle(t[4] + pi)
+      t[5] = -t[5]
 
     R64 = Ryz(t[5], t[4])
     R60 = R40 * R64
