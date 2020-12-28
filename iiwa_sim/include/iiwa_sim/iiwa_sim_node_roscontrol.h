@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2016-2019 Arne Peters - arne.peters@tum.de
+ * Copyright (C) 2016-2020 Arne Peters - arne.peters@tum.de
  * Technische Universität München
  * Chair for Chair of Robotics, Artificial Intelligence and Real-time Systems
  * Fakultät für Informatik / I6, Boltzmannstraße 3, 85748 Garching bei München, Germany
@@ -144,6 +144,9 @@ namespace iiwa_sim {
 
 			ros::Subscriber _jointPositionSub;
 			ros::Subscriber _cartesianPoseSub;
+
+			ros::ServiceClient _setSmartServoLimitsClient;
+			ros::ServiceClient _setSmartServoLinLimitsClient;
 
 			double _redundancyAngleTolerance = 0.005;
 			double _jointAngleConstraintTolerance = 0.005;

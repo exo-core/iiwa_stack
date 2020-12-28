@@ -106,6 +106,8 @@ class IiwaSunrise(object):
     model = get_param('~model', 'iiwa14')
     tool_length = get_param('~tool_length', 0.0)
     flange_type = get_param('~flange_type', 'basic')
+    self.current_joint_positions = [0,0,0,0,0,0,0]
+    self.current_cartesian_pose = Pose()
 
     if model == 'iiwa7':
       self.l02 = 0.34
@@ -131,6 +133,17 @@ class IiwaSunrise(object):
     self.tr = 0.0
     self.rs = 2.0
     self.v = 1.0
+
+    # For iiwa 7 - A1: 98deg/s, A2: 98deg/s, A3: 100deg/s, A4: 130deg/s, A5: 140deg/s, A6: 180deg/s, A7: 180deg/s
+    # For iiwa 14 - A1: 85/s, A2: 85deg/s, A3: 100deg/s, A4: 75deg/s, A5: 130deg/s, A6: 135deg/s, A7: 135deg/s
+    self.max_joint_velocities = [np.deg2rad(85),
+                                 np.deg2rad(85),
+                                 np.deg2rad(100),
+                                 np.deg2rad(75),
+                                 np.deg2rad(130),
+                                 np.deg2rad(135),
+                                 np.deg2rad(135)]
+    self.relative_joint_velocity = 1.0
 
     self.joint_names = ['{}_joint_1'.format(self.robot_name),
                         '{}_joint_2'.format(self.robot_name),
@@ -161,19 +174,17 @@ class IiwaSunrise(object):
     spin()
 
   def jointPositionCb(self, msg):
-    self.publishJointPositionCommand(
-        [msg.position.a1, msg.position.a2, msg.position.a3, msg.position.a4, msg.position.a5, msg.position.a6, msg.position.a7])
+    target_angles = [msg.position.a1, msg.position.a2, msg.position.a3, msg.position.a4, msg.position.a5, msg.position.a6, msg.position.a7]
+    self.publishJointPositionCommand(target_angles, self.getJointMotionTime(target_angles, self.current_joint_positions))
 
   def handleSmartServoConfiguration(self, request):
     return ConfigureControlModeResponse(True, '')
 
   def handlePathParametersConfiguration(self, request):
-    loginfo('setting path parameters')
+    loginfo('setting relative joint velocity to '+str(request.joint_relative_velocity))
 
-    v = request.joint_relative_velocity
-
-    if v >= 0.0 and v <= 1.0:
-      self.v = linearlyMap(v, 0.0, 1.0, 2.0, 0.5)
+    if request.joint_relative_velocity >= 0.0 and request.joint_relative_velocity <= 1.0:
+      self.relative_joint_velocity = request.joint_relative_velocity
       return SetSmartServoJointSpeedLimitsResponse(True, '')
     else:
       return SetSmartServoJointSpeedLimitsResponse(False, '')
@@ -199,33 +210,33 @@ class IiwaSunrise(object):
     if len(msg.name) != 7 or msg.name[0] != '{}_joint_1'.format(self.robot_name):
       return
 
-    t = msg.position
+    self.current_joint_positions = msg.position
 
     rs = 0
-    rs += 1 if t[1] < 0 else 0
-    rs += 2 if t[3] < 0 else 0
-    rs += 4 if t[5] < 0 else 0
+    rs += 1 if self.current_joint_positions[1] < 0 else 0
+    rs += 2 if self.current_joint_positions[3] < 0 else 0
+    rs += 4 if self.current_joint_positions[5] < 0 else 0
 
     self.rs = rs
 
-    H02 = Hrrt(t[1], t[0], self.l02)
-    H24 = Hrrt(-t[3], t[2], self.l24)
-    H46 = Hrrt(t[5], t[4], self.l46)
-    H6E = Hrrt(0.0, t[6], self.l6E)
+    H02 = Hrrt(self.current_joint_positions[1], self.current_joint_positions[0], self.l02)
+    H24 = Hrrt(-self.current_joint_positions[3], self.current_joint_positions[2], self.l24)
+    H46 = Hrrt(self.current_joint_positions[5], self.current_joint_positions[4], self.l46)
+    H6E = Hrrt(0.0, self.current_joint_positions[6], self.l6E)
 
     H0E = H02 * H24 * H46 * H6E
     q0E = quaternion_from_matrix(H0E)
+
+    self.current_cartesian_pose = Pose(
+      position = Point(x = H0E[0,3], y = H0E[1,3], z = H0E[2,3]),
+      orientation = Quaternion(x = q0E[0], y = q0E[1], z = q0E[2], w = q0E[3]))
 
     self.state_pose_pub.publish(
       CartesianPose(
         poseStamped = PoseStamped(
           header = Header(
             frame_id = '{}_link_0'.format(self.robot_name)),
-          pose = Pose(
-            position = Point(
-              x = H0E[0,3], y = H0E[1,3], z = H0E[2,3]),
-            orientation = Quaternion(
-              x = q0E[0], y = q0E[1], z = q0E[2], w = q0E[3]))),
+          pose = self.current_cartesian_pose),
         redundancy = RedundancyInformation(
           e1 = self.tr)))
 
@@ -233,13 +244,13 @@ class IiwaSunrise(object):
       JointPosition(header = Header(
         frame_id = '{}_link_0'.format(self.robot_name)),
       position = JointQuantity(
-       a1 = t[0],
-       a2 = t[1],
-       a3 = t[2],
-       a4 = t[3],
-       a5 = t[4],
-       a6 = t[5],
-       a7 = t[6],
+       a1 = self.current_joint_positions[0],
+       a2 = self.current_joint_positions[1],
+       a3 = self.current_joint_positions[2],
+       a4 = self.current_joint_positions[3],
+       a5 = self.current_joint_positions[4],
+       a6 = self.current_joint_positions[5],
+       a7 = self.current_joint_positions[6],
     )))
 
   def commandPoseCb(self, msg):
@@ -312,21 +323,34 @@ class IiwaSunrise(object):
     RE6 = R60.T * RE0
     t[6] = arctan2(RE6[1,0], RE6[0,0])
 
-    self.publishJointPositionCommand(t)
+    self.publishJointPositionCommand(t, self.getCartesianMotionTime(msg.poseStamped.pose, self.current_cartesian_pose))
 
     logdebug('timing: %s ms', 1.0e3 * (clock() - T0))
 
   def commandPoseLinCb(self, msg):
     self.commandPoseCb(msg)
 
-  def publishJointPositionCommand(self, t):
+  def publishJointPositionCommand(self, trajectory, duration):
     jtp = JointTrajectoryPoint()
-    jtp.positions = t
-    jtp.time_from_start = rospy.Duration.from_sec(self.v)
+    jtp.positions = trajectory
+    jtp.time_from_start = duration
     jt = JointTrajectory()
     jt.joint_names = self.joint_names
     jt.points.append(jtp)
     self.joint_trajectory_pub.publish(jt)
+
+  def getCartesianMotionTime(self, current, target):
+    return rospy.Duration.from_sec(self.v)
+
+  def getJointMotionTime(self, current, target):
+    slowest_joint_time = 0
+
+    for c, t, v in zip(current, target, self.max_joint_velocities):
+      motion_time = abs(t - c) / (v * self.relative_joint_velocity)
+      if motion_time > slowest_joint_time:
+        slowest_joint_time = motion_time
+
+    return rospy.Duration.from_sec(motion_time)
 
 if __name__ == "__main__":
   ik = IiwaSunrise()
