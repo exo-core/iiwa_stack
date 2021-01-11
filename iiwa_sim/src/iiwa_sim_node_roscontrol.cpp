@@ -29,6 +29,8 @@
  */
 
 #include <iiwa_sim/iiwa_sim_node_roscontrol.h>
+#include <iiwa_msgs/SetSmartServoJointSpeedLimits.h>
+#include <iiwa_msgs/SetSmartServoLinSpeedLimits.h>
 
 iiwa_sim::SimNodeRoscontrol::SimNodeRoscontrol()
 : iiwa_sim::SimNode::SimNode() {
@@ -38,6 +40,9 @@ iiwa_sim::SimNodeRoscontrol::SimNodeRoscontrol()
 
 	_jointPositionSub = _nh.subscribe("state/JointPosition", 2, &iiwa_sim::SimNodeRoscontrol::jointPositionCallback, this);
 	_cartesianPoseSub = _nh.subscribe("state/CartesianPose", 2, &iiwa_sim::SimNodeRoscontrol::cartesianPoseCallback, this);
+
+	_setSmartServoLimitsClient = _nh.serviceClient<iiwa_msgs::SetSmartServoJointSpeedLimits>("configuration/setSmartServoLimits");
+	_setSmartServoLinLimitsClient = _nh.serviceClient<iiwa_msgs::SetSmartServoLinSpeedLimits>("configuration/setSmartServoLimits");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -143,7 +148,19 @@ void iiwa_sim::SimNodeRoscontrol::cancelCurrentGoal() {
 // ---------------------------------------------------------------------------------------------------------------------
 
 bool iiwa_sim::SimNodeRoscontrol::setPTPJointLimitsServiceCB(iiwa_msgs::SetPTPJointSpeedLimits::Request& request, iiwa_msgs::SetPTPJointSpeedLimits::Response& response) {
+	iiwa_msgs::SetSmartServoJointSpeedLimits srvCall;
+	srvCall.request.joint_relative_velocity = request.joint_relative_velocity;
+	srvCall.request.joint_relative_acceleration = request.joint_relative_acceleration;
+	srvCall.request.override_joint_acceleration = 1.0;
 
+	if (_setSmartServoLimitsClient.call(srvCall.request, srvCall.response)) {
+		response.success = srvCall.response.success;
+		response.error = srvCall.response.error;
+		return true;
+	}
+	else {
+		return false;
+	}
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

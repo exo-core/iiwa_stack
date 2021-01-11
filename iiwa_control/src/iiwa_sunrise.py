@@ -33,6 +33,7 @@ from iiwa_msgs.msg import JointPosition, JointQuantity, CartesianPose, Redundanc
 from iiwa_msgs.srv import ConfigureControlMode, ConfigureControlModeRequest, ConfigureControlModeResponse
 from iiwa_msgs.srv import SetSmartServoJointSpeedLimits, SetSmartServoJointSpeedLimitsRequest, SetSmartServoJointSpeedLimitsResponse
 from iiwa_msgs.srv import SetSmartServoLinSpeedLimits, SetSmartServoLinSpeedLimitsRequest, SetSmartServoLinSpeedLimitsResponse
+import numpy as np
 from numpy import pi, sqrt, cos, sin, arctan2, array, matrix
 from numpy.linalg import norm
 from geometry_msgs.msg import Point, Quaternion, Pose, PoseStamped, WrenchStamped
@@ -89,6 +90,13 @@ def Hrrt(ty, tz, l):
                  [-sy, 0.0, cy, l],
                  [0.0, 0.0, 0.0, 1.0]])
 
+def normalize_angle(angle):
+  while angle > pi:
+    angle -= 2*pi
+  while angle < -pi:
+    angle += 2*pi
+  return angle
+
 class IiwaSunrise(object):
   def __init__(self):
     init_node('iiwa_sunrise', log_level = INFO)
@@ -98,6 +106,8 @@ class IiwaSunrise(object):
     model = get_param('~model', 'iiwa14')
     tool_length = get_param('~tool_length', 0.0)
     flange_type = get_param('~flange_type', 'basic')
+    self.current_joint_positions = [0,0,0,0,0,0,0]
+    self.current_cartesian_pose = Pose()
 
     if model == 'iiwa7':
       self.l02 = 0.34
@@ -121,7 +131,19 @@ class IiwaSunrise(object):
     self.l6E = 0.126 + tool_length + flange_offset
 
     self.tr = 0.0
+    self.rs = 2.0
     self.v = 1.0
+
+    # For iiwa 7 - A1: 98deg/s, A2: 98deg/s, A3: 100deg/s, A4: 130deg/s, A5: 140deg/s, A6: 180deg/s, A7: 180deg/s
+    # For iiwa 14 - A1: 85/s, A2: 85deg/s, A3: 100deg/s, A4: 75deg/s, A5: 130deg/s, A6: 135deg/s, A7: 135deg/s
+    self.max_joint_velocities = [np.deg2rad(85),
+                                 np.deg2rad(85),
+                                 np.deg2rad(100),
+                                 np.deg2rad(75),
+                                 np.deg2rad(130),
+                                 np.deg2rad(135),
+                                 np.deg2rad(135)]
+    self.relative_joint_velocity = 1.0
 
     self.joint_names = ['{}_joint_1'.format(self.robot_name),
                         '{}_joint_2'.format(self.robot_name),
@@ -152,19 +174,17 @@ class IiwaSunrise(object):
     spin()
 
   def jointPositionCb(self, msg):
-    self.publishJointPositionCommand(
-        [msg.position.a1, msg.position.a2, msg.position.a3, msg.position.a4, msg.position.a5, msg.position.a6, msg.position.a7])
+    target_angles = [msg.position.a1, msg.position.a2, msg.position.a3, msg.position.a4, msg.position.a5, msg.position.a6, msg.position.a7]
+    self.publishJointPositionCommand(target_angles, self.getJointMotionTime(target_angles, self.current_joint_positions))
 
   def handleSmartServoConfiguration(self, request):
     return ConfigureControlModeResponse(True, '')
 
   def handlePathParametersConfiguration(self, request):
-    loginfo('setting path parameters')
+    loginfo('setting relative joint velocity to '+str(request.joint_relative_velocity))
 
-    v = request.joint_relative_velocity
-
-    if v >= 0.0 and v <= 1.0:
-      self.v = linearlyMap(v, 0.0, 1.0, 2.0, 0.5)
+    if request.joint_relative_velocity >= 0.0 and request.joint_relative_velocity <= 1.0:
+      self.relative_joint_velocity = request.joint_relative_velocity
       return SetSmartServoJointSpeedLimitsResponse(True, '')
     else:
       return SetSmartServoJointSpeedLimitsResponse(False, '')
@@ -181,35 +201,42 @@ class IiwaSunrise(object):
       return SetSmartServoLinSpeedLimitsResponse(False, '')
 
   def redundancyCb(self, msg):
-    if msg.status == -1 or msg.turn == -1:
-      return
+    if not (msg.status == -1 or msg.turn == -1):
+      self.rs = msg.status 
 
     self.tr = msg.e1
 
   def jointStatesCb(self, msg):
-    if len(msg.name) != 7 or msg.name[0] != 'iiwa_joint_1':
+    if len(msg.name) != 7 or msg.name[0] != '{}_joint_1'.format(self.robot_name):
       return
 
-    t = msg.position
+    self.current_joint_positions = msg.position
 
-    H02 = Hrrt(t[1], t[0], self.l02)
-    H24 = Hrrt(-t[3], t[2], self.l24)
-    H46 = Hrrt(t[5], t[4], self.l46)
-    H6E = Hrrt(0.0, t[6], self.l6E)
+    rs = 0
+    rs += 1 if self.current_joint_positions[1] < 0 else 0
+    rs += 2 if self.current_joint_positions[3] < 0 else 0
+    rs += 4 if self.current_joint_positions[5] < 0 else 0
+
+    self.rs = rs
+
+    H02 = Hrrt(self.current_joint_positions[1], self.current_joint_positions[0], self.l02)
+    H24 = Hrrt(-self.current_joint_positions[3], self.current_joint_positions[2], self.l24)
+    H46 = Hrrt(self.current_joint_positions[5], self.current_joint_positions[4], self.l46)
+    H6E = Hrrt(0.0, self.current_joint_positions[6], self.l6E)
 
     H0E = H02 * H24 * H46 * H6E
     q0E = quaternion_from_matrix(H0E)
+
+    self.current_cartesian_pose = Pose(
+      position = Point(x = H0E[0,3], y = H0E[1,3], z = H0E[2,3]),
+      orientation = Quaternion(x = q0E[0], y = q0E[1], z = q0E[2], w = q0E[3]))
 
     self.state_pose_pub.publish(
       CartesianPose(
         poseStamped = PoseStamped(
           header = Header(
             frame_id = '{}_link_0'.format(self.robot_name)),
-          pose = Pose(
-            position = Point(
-              x = H0E[0,3], y = H0E[1,3], z = H0E[2,3]),
-            orientation = Quaternion(
-              x = q0E[0], y = q0E[1], z = q0E[2], w = q0E[3]))),
+          pose = self.current_cartesian_pose),
         redundancy = RedundancyInformation(
           e1 = self.tr)))
 
@@ -217,13 +244,13 @@ class IiwaSunrise(object):
       JointPosition(header = Header(
         frame_id = '{}_link_0'.format(self.robot_name)),
       position = JointQuantity(
-       a1 = t[0],
-       a2 = t[1],
-       a3 = t[2],
-       a4 = t[3],
-       a5 = t[4],
-       a6 = t[5],
-       a7 = t[6],
+       a1 = self.current_joint_positions[0],
+       a2 = self.current_joint_positions[1],
+       a3 = self.current_joint_positions[2],
+       a4 = self.current_joint_positions[3],
+       a5 = self.current_joint_positions[4],
+       a6 = self.current_joint_positions[5],
+       a7 = self.current_joint_positions[6],
     )))
 
   def commandPoseCb(self, msg):
@@ -239,6 +266,11 @@ class IiwaSunrise(object):
                  msg.poseStamped.pose.orientation.z,
                  msg.poseStamped.pose.orientation.w])
 
+    rs = self.rs
+    rs2 = - np.sign((rs & (1 << 0))-0.5)
+    rs4 = - np.sign((rs & (1 << 1))-0.5)
+    rs6 = - np.sign((rs & (1 << 2))-0.5)
+
     pE6 = matrix([[0.0], [0.0], [self.l6E]])
     p20 = matrix([[0.0], [0.0], [self.l02]])
 
@@ -253,44 +285,72 @@ class IiwaSunrise(object):
       logwarn('invalid pose command')
       return
 
-    (tys, tzs) = rr(p260)
-    tp24z0 = 1/(2.0 * s) * (self.l24**2 - self.l46**2 + s**2)
-    tp240 = matrix([[-sqrt(self.l24**2 - tp24z0**2)], [0.0], [tp24z0]])
-    p240 = Ryz(tys, tzs) * Rz(self.tr) * tp240
-    (t[1], t[0]) = rr(p240)
+    t[3] = rs4 * (np.pi - np.arccos((self.l24**2 + self.l46**2 - s**2)/(2*self.l24 * self.l46)))
+    t[2] = self.tr
+
+    x = -cos(t[2])*sin(t[3]) * self.l46
+    y = -sin(t[2])*sin(t[3]) * self.l46
+    z = cos(t[3]) * self.l46 + self.l24
+    xz = (x**2 + z **2) ** 0.5
+
+    z_des = p260[2].item()
+
+    t[1] = np.arccos(z_des / xz) - np.arctan2(x, z)
+    if np.sign(t[1]) != rs2:
+      t[1] = - np.arccos(z_des / xz) - np.arctan2(x, z)
+    if np.sign(t[1]) != rs2:
+      logwarn('Joint 2 has no solution for required {} sign.'.format('negative' if rs2 == -1 else 'positive'))
+      return
+
+    x = self.l24*sin(t[1]) + (cos(t[3])*sin(t[1]) - (cos(t[1])*cos(t[2]))*sin(t[3]))*self.l46
+
+    x_des = p260[0].item()
+    y_des = p260[1].item()
+
+    t[0] = normalize_angle(np.arctan2(y_des, x_des) - np.arctan2(y,x))
 
     R20 = Ryz(t[1], t[0])
-    p40 = p20 + p240
-    p460 = p60 - p40
-    p462 = R20.T * p460
-    (t[3], t[2]) = rr(p462)
-    t[3] = -t[3]
-
     R42 = Ryz(-t[3], t[2])
     R40 = R20 * R42
     p6E4 = R40.T * p6E0
     (t[5], t[4]) = rr(p6E4)
+    if np.sign(t[5]) != rs6:
+      t[4] = normalize_angle(t[4] + pi)
+      t[5] = -t[5]
 
     R64 = Ryz(t[5], t[4])
     R60 = R40 * R64
     RE6 = R60.T * RE0
     t[6] = arctan2(RE6[1,0], RE6[0,0])
 
-    self.publishJointPositionCommand(t)
+    self.publishJointPositionCommand(t, self.getCartesianMotionTime(msg.poseStamped.pose, self.current_cartesian_pose))
 
     logdebug('timing: %s ms', 1.0e3 * (clock() - T0))
 
   def commandPoseLinCb(self, msg):
     self.commandPoseCb(msg)
 
-  def publishJointPositionCommand(self, t):
+  def publishJointPositionCommand(self, trajectory, duration):
     jtp = JointTrajectoryPoint()
-    jtp.positions = t
-    jtp.time_from_start = rospy.Duration.from_sec(self.v)
+    jtp.positions = trajectory
+    jtp.time_from_start = duration
     jt = JointTrajectory()
     jt.joint_names = self.joint_names
     jt.points.append(jtp)
     self.joint_trajectory_pub.publish(jt)
+
+  def getCartesianMotionTime(self, current, target):
+    return rospy.Duration.from_sec(self.v)
+
+  def getJointMotionTime(self, current, target):
+    slowest_joint_time = 0
+
+    for c, t, v in zip(current, target, self.max_joint_velocities):
+      motion_time = abs(t - c) / (v * self.relative_joint_velocity)
+      if motion_time > slowest_joint_time:
+        slowest_joint_time = motion_time
+
+    return rospy.Duration.from_sec(motion_time)
 
 if __name__ == "__main__":
   ik = IiwaSunrise()
