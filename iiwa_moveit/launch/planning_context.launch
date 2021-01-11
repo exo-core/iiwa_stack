@@ -9,12 +9,14 @@
 
   <!-- The name of the parameter under which the URDF is loaded -->
   <arg name="robot_description" default="robot_description"/>
+  <arg name="gravity" default="true" />
 
   <!-- Loads the URDF with the given hardware interface and robot name into the ROS Parameter Server -->
   <group if="$(arg load_robot_description)">
     <include file="$(find iiwa_description)/launch/$(arg model)_upload.launch">
       <arg name="hardware_interface" value="$(arg hardware_interface)"/>
       <arg name="robot_name" value="$(arg robot_name)" />
+      <arg name="gravity" value="$(arg gravity)" />
     </include>
   </group>
 
