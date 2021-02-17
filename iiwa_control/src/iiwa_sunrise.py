@@ -112,9 +112,25 @@ class IiwaSunrise(object):
     if model == 'iiwa7':
       self.l02 = 0.34
       self.l24 = 0.4
+      
+      self.max_joint_velocities = [np.deg2rad(98),
+                                 np.deg2rad(98),
+                                 np.deg2rad(100),
+                                 np.deg2rad(130),
+                                 np.deg2rad(140),
+                                 np.deg2rad(180),
+                                 np.deg2rad(180)]
     elif model == 'iiwa14':
       self.l02 = 0.36
       self.l24 = 0.42
+      
+      self.max_joint_velocities = [np.deg2rad(85),
+                                 np.deg2rad(85),
+                                 np.deg2rad(100),
+                                 np.deg2rad(75),
+                                 np.deg2rad(130),
+                                 np.deg2rad(135),
+                                 np.deg2rad(135)]
     else:
       logerr('unknown robot model')
       return
@@ -134,15 +150,6 @@ class IiwaSunrise(object):
     self.rs = 2.0
     self.v = 1.0
 
-    # For iiwa 7 - A1: 98deg/s, A2: 98deg/s, A3: 100deg/s, A4: 130deg/s, A5: 140deg/s, A6: 180deg/s, A7: 180deg/s
-    # For iiwa 14 - A1: 85/s, A2: 85deg/s, A3: 100deg/s, A4: 75deg/s, A5: 130deg/s, A6: 135deg/s, A7: 135deg/s
-    self.max_joint_velocities = [np.deg2rad(85),
-                                 np.deg2rad(85),
-                                 np.deg2rad(100),
-                                 np.deg2rad(75),
-                                 np.deg2rad(130),
-                                 np.deg2rad(135),
-                                 np.deg2rad(135)]
     self.relative_joint_velocity = 1.0
 
     self.joint_names = ['{}_joint_1'.format(self.robot_name),
@@ -343,14 +350,17 @@ class IiwaSunrise(object):
     return rospy.Duration.from_sec(self.v)
 
   def getJointMotionTime(self, current, target):
+    loginfo('Compiting motion time')
     slowest_joint_time = 0
 
     for c, t, v in zip(current, target, self.max_joint_velocities):
       motion_time = abs(t - c) / (v * self.relative_joint_velocity)
+      loginfo('c: %f, t: %f, v: %f, motion_time: %f', c, t, v, motion_time)
+      
       if motion_time > slowest_joint_time:
         slowest_joint_time = motion_time
 
-    return rospy.Duration.from_sec(motion_time)
+    return rospy.Duration.from_sec(slowest_joint_time)
 
 if __name__ == "__main__":
   ik = IiwaSunrise()
